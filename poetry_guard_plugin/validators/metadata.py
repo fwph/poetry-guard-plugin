@@ -92,67 +92,40 @@ class MetadataValidator:
             uploaded = datetime.fromisoformat(upload_iso)
             age_days = (now - uploaded).total_seconds() / 86400
             if age_days < self.config.min_age_days:
-                out.append(
-                    self._finding(
-                        pkg,
-                        "too_new",
-                        Severity.MODERATE,
-                        f"{pkg.key} uploaded {age_days:.1f} days ago (< {self.config.min_age_days})",
-                        {"uploaded": upload_iso, "age_days": round(age_days, 2)},
-                    )
-                )
+                out.append(Finding(
+                    validator=self.name, rule_id="too_new", severity=Severity.MODERATE,
+                    package_name=pkg.name, package_version=pkg.version,
+                    message=f"{pkg.key} uploaded {age_days:.1f} days ago (< {self.config.min_age_days})",
+                    detail={"uploaded": upload_iso, "age_days": round(age_days, 2)},
+                ))
 
         if not _has_repo_url(info):
-            out.append(
-                self._finding(
-                    pkg,
-                    "repo_url_missing",
-                    Severity.LOW,
-                    f"{pkg.key} has no source-repo URL on PyPI",
-                    {"home_page": info.get("home_page"), "project_urls": info.get("project_urls")},
-                )
-            )
+            out.append(Finding(
+                validator=self.name, rule_id="repo_url_missing", severity=Severity.LOW,
+                package_name=pkg.name, package_version=pkg.version,
+                message=f"{pkg.key} has no source-repo URL on PyPI",
+                detail={"home_page": info.get("home_page"), "project_urls": info.get("project_urls")},
+            ))
 
         prior_pkg = prior.get(pkg.name)
         if prior_pkg and prior_pkg.version != pkg.version:
             current_email = (info.get("author_email") or info.get("maintainer_email") or "").strip().lower()
             prior_email = prior_email_by_name.get(pkg.name)
             if current_email and prior_email and current_email != prior_email:
-                out.append(
-                    self._finding(
-                        pkg,
-                        "maintainer_changed",
-                        Severity.HIGH,
-                        (
-                            f"{pkg.key}: author email changed since {prior_pkg.version}"
-                            f" ({prior_email!r} -> {current_email!r})"
-                        ),
-                        {
-                            "prior_version": prior_pkg.version,
-                            "prior_email": prior_email,
-                            "current_email": current_email,
-                        },
-                    )
-                )
+                out.append(Finding(
+                    validator=self.name, rule_id="maintainer_changed", severity=Severity.HIGH,
+                    package_name=pkg.name, package_version=pkg.version,
+                    message=(
+                        f"{pkg.key}: author email changed since {prior_pkg.version}"
+                        f" ({prior_email!r} -> {current_email!r})"
+                    ),
+                    detail={
+                        "prior_version": prior_pkg.version,
+                        "prior_email": prior_email,
+                        "current_email": current_email,
+                    },
+                ))
         return out
-
-    def _finding(
-        self,
-        pkg: PackageRef,
-        rule_id: str,
-        severity: Severity,
-        message: str,
-        detail: dict[str, Any],
-    ) -> Finding:
-        return Finding(
-            validator=self.name,
-            rule_id=rule_id,
-            severity=severity,
-            package_name=pkg.name,
-            package_version=pkg.version,
-            message=message,
-            detail=detail,
-        )
 
 
 def _has_repo_url(info: dict[str, Any]) -> bool:

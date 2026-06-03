@@ -63,11 +63,12 @@ class MetadataValidator:
             email = _email_from(meta)
             if email:
                 prior_email_by_name[prior_pkg.name] = email
+        now = datetime.now(timezone.utc)
         findings: list[Finding] = []
         for pkg, meta in zip(resolved, current_metas, strict=True):
             if isinstance(meta, BaseException) or meta is None:
                 continue
-            findings.extend(self._check(pkg, meta, prior, prior_email_by_name))
+            findings.extend(self._check(pkg, meta, prior, prior_email_by_name, now))
         return tuple(findings)
 
     async def _fetch(self, session: aiohttp.ClientSession, pkg: PackageRef) -> dict[str, Any] | None:
@@ -80,6 +81,7 @@ class MetadataValidator:
         meta: dict[str, Any],
         prior: dict[str, PackageRef],
         prior_email_by_name: dict[str, str],
+        now: datetime,
     ) -> list[Finding]:
         info = meta.get("info") or {}
         urls = meta.get("urls") or []
@@ -88,7 +90,7 @@ class MetadataValidator:
         upload_iso = next((u.get("upload_time_iso_8601") for u in urls if u.get("upload_time_iso_8601")), None)
         if self.config.min_age_days > 0 and upload_iso:
             uploaded = datetime.fromisoformat(upload_iso)
-            age_days = (datetime.now(timezone.utc) - uploaded).total_seconds() / 86400
+            age_days = (now - uploaded).total_seconds() / 86400
             if age_days < self.config.min_age_days:
                 out.append(
                     self._finding(

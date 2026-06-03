@@ -93,12 +93,16 @@ def _rules() -> tuple[RuleSpec, ...]:
     return tuple(out)
 
 
+_RULES = _rules()
+_RULE_SEVERITY: dict[str, Severity] = {r.rule_id: r.default_severity for r in _RULES}
+
+
 @dataclass
 class GuardDogValidator:
     config: GuardConfig
     name: str = "guarddog"
     rules_version: str = "v2.10"
-    rules: tuple[RuleSpec, ...] = _rules()
+    rules: tuple[RuleSpec, ...] = _RULES
 
     async def validate(
         self,
@@ -149,11 +153,7 @@ class GuardDogValidator:
         return tuple(findings)
 
     def _severity_for(self, rule_id: str) -> Severity:
-        if rule_id in _HIGH_SEVERITY_SOURCE or rule_id in _HIGH_SEVERITY_METADATA:
-            return Severity.HIGH
-        if rule_id in _SOURCE_RULES:
-            return Severity.MODERATE
-        return Severity.LOW
+        return _RULE_SEVERITY.get(rule_id, Severity.LOW)
 
     @staticmethod
     def _describe(rule_id: str, value: object) -> tuple[str, dict[str, object]]:

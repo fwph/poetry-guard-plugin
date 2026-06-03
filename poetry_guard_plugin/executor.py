@@ -56,8 +56,9 @@ class GuardExecutor(Executor):
                 # _prepare_archive() builds a wheel; setup.py patterns would be lost.
                 assert package.source_url is not None
                 p = Path(package.source_url)
-                if not p.is_absolute() and getattr(package, "root_dir", None):
-                    p = package.root_dir / p
+                root_dir: Path | None = getattr(package, "root_dir", None)
+                if not p.is_absolute() and root_dir is not None:
+                    p = root_dir / p
                 return p if p.is_file() else None
             if package.source_type == "directory":
                 return None  # directory installs: no single artifact to scan

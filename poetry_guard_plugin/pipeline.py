@@ -55,16 +55,9 @@ class Pipeline:
     ) -> tuple[Finding, ...]:
         if not self.config.enabled or not resolved:
             return ()
-        results = await asyncio.gather(
-            *(self._run_lockfile_one(v, tuple(resolved), prior) for v in self.lockfile_validators),
-            return_exceptions=True,
+        return await _gather_findings(
+            self._run_lockfile_one(v, tuple(resolved), prior) for v in self.lockfile_validators
         )
-        findings: list[Finding] = []
-        for r in results:
-            if isinstance(r, BaseException):
-                continue
-            findings.extend(r)
-        return tuple(findings)
 
     async def _run_lockfile_one(
         self,
@@ -83,9 +76,9 @@ class Pipeline:
         if not to_run:
             return tuple(cached)
         fresh = await validator.validate(tuple(to_run), prior)
-        by_pkg: dict[str, list[Finding]] = {p.key: [] for p in to_run}
+        by_pkg: dict[str, list[Finding]] = {}
         for f in fresh:
-            by_pkg.setdefault(f"{f.package_name}@{f.package_version}", []).append(f)
+            by_pkg.setdefault(f.key, []).append(f)
         for pkg in to_run:
             self.cache.put_lockfile(
                 validator.name,
@@ -98,16 +91,7 @@ class Pipeline:
     async def run_artifact(self, packages: Sequence[PackageRef]) -> tuple[Finding, ...]:
         if not self.config.enabled or not self.artifact_validators or self.fetch_artifact is None:
             return ()
-        results = await asyncio.gather(
-            *(self._run_artifact_one(p) for p in packages),
-            return_exceptions=True,
-        )
-        findings: list[Finding] = []
-        for r in results:
-            if isinstance(r, BaseException):
-                continue
-            findings.extend(r)
-        return tuple(findings)
+        return await _gather_findings(self._run_artifact_one(p) for p in packages)
 
     async def run_artifact_at_path(self, pkg: PackageRef, path: Path) -> tuple[Finding, ...]:
         if not self.config.enabled or not self.artifact_validators:
@@ -129,16 +113,23 @@ class Pipeline:
         if not path.is_file():
             return ()
         sha = VerdictCache.sha256_of(path)
-        out: list[Finding] = []
-        for validator in self.artifact_validators:
-            hit = self.cache.get_artifact(validator.name, validator.rules_version, sha)
-            if hit is not None:
-                out.extend(hit)
-                continue
-            fresh = await validator.validate(pkg, path)
-            self.cache.put_artifact(validator.name, validator.rules_version, sha, fresh)
-            out.extend(fresh)
-        return tuple(out)
+        return await _gather_findings(
+            self._run_one_artifact_validator(v, pkg, path, sha) for v in self.artifact_validators
+        )
+
+    async def _run_one_artifact_validator(
+        self,
+        validator: ArtifactValidator,
+        pkg: PackageRef,
+        path: Path,
+        sha: str,
+    ) -> tuple[Finding, ...]:
+        hit = self.cache.get_artifact(validator.name, validator.rules_version, sha)
+        if hit is not None:
+            return hit
+        fresh = await validator.validate(pkg, path)
+        self.cache.put_artifact(validator.name, validator.rules_version, sha, fresh)
+        return fresh
 
     def aggregate(self, findings: tuple[Finding, ...]) -> PipelineResult:
         blocked: list[Finding] = []
@@ -157,17 +148,16 @@ class Pipeline:
         return f.rule_id in self.config.ignore_rules or f"{f.validator}/{f.rule_id}" in self.config.ignore_rules
 
     def _is_accepted(self, f: Finding) -> bool:
-        key = f"{f.package_name}@{f.package_version}"
-        return key in self.config.accept_risk
+        return f.key in self.config.accept_risk
 
     def _blocks(self, f: Finding) -> bool:
         if f.severity is Severity.CRITICAL:
             return True
         if f.validator == "osv":
-            return f.severity.at_least(self.config.osv_severity)
+            return f.severity >= self.config.osv_severity
         if f.validator == "guarddog":
-            return f.severity.at_least(self.config.guarddog_severity)
-        return f.severity.at_least(HARD_FAIL_MIN)
+            return f.severity >= self.config.guarddog_severity
+        return f.severity >= HARD_FAIL_MIN
 
 
 def raise_for_lock(result: PipelineResult) -> None:
@@ -178,6 +168,17 @@ def raise_for_lock(result: PipelineResult) -> None:
 def raise_for_artifact(result: PipelineResult) -> None:
     if result.blocked:
         raise ArtifactValidationError(result.blocked)
+
+
+async def _gather_findings(
+    coros: Any,
+) -> tuple[Finding, ...]:
+    results = await asyncio.gather(*coros, return_exceptions=True)
+    findings: list[Finding] = []
+    for r in results:
+        if not isinstance(r, BaseException):
+            findings.extend(r)
+    return tuple(findings)
 
 
 def _load_lockfile_validators(config: GuardConfig) -> tuple[LockfileValidator, ...]:

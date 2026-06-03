@@ -11,13 +11,19 @@ class Severity(StrEnum):
     HIGH = "high"
     CRITICAL = "critical"
 
-    @property
-    def rank(self) -> int:
-        order = [Severity.INFO, Severity.LOW, Severity.MODERATE, Severity.HIGH, Severity.CRITICAL]
-        return order.index(self)
+    def __lt__(self, other: object) -> bool:
+        if not isinstance(other, Severity):
+            return NotImplemented
+        return list(self.__class__).index(self) < list(self.__class__).index(other)
 
-    def at_least(self, threshold: "Severity") -> bool:
-        return self.rank >= threshold.rank
+    def __le__(self, other: object) -> bool:
+        return self < other or self == other
+
+    def __gt__(self, other: object) -> bool:
+        return not self <= other
+
+    def __ge__(self, other: object) -> bool:
+        return not self < other
 
 
 @dataclass(frozen=True)
@@ -56,7 +62,7 @@ class Verdict:
     def max_severity(self) -> Severity:
         if not self.findings:
             return Severity.INFO
-        return max((f.severity for f in self.findings), key=lambda s: s.rank)
+        return max(f.severity for f in self.findings)
 
 
 @dataclass(frozen=True)

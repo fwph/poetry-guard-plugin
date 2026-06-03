@@ -2,7 +2,47 @@
 
 ## Project Overview
 
-Plugin for Poetry that wraps dependency installs/updates with a validation process to check for potential supply chain attacks
+Plugin for Poetry that wraps dependency installs/updates with a validation process to check for potential supply chain
+attacks
+
+## Architectural Thesis
+
+Poetry Guard is intended to be a developer-local and CI-friendly supply chain guardrail, not a replacement for a
+full software composition analysis platform, internal package proxy, or curated artifact repository. The gap it targets
+is the moment when a Poetry workflow is about to trust newly resolved or newly downloaded package code.
+
+This is especially relevant for individual developers and small organizations, where internal package proxies and
+curated repositories are often unrealistic to set up and maintain. Even mature organizations can struggle to make
+package proxy policy effective across all developer machines and CI environments. Poetry Guard should therefore focus on
+the practical "last mile" control: intercepting dependency changes during `poetry add`, `poetry update`, `poetry lock`,
+and `poetry install`, then applying policy before the dependency becomes trusted project state or executable code.
+
+Architecturally, the strongest version of the plugin is:
+
+- a thin Poetry integration layer that hooks lockfile writes and artifact installation
+- an independent policy pipeline that aggregates validator findings
+- pluggable validators for known vulnerability intelligence, package metadata drift, malicious package heuristics,
+  provenance signals, and organization-specific policy
+- clear fail-open/fail-closed behavior, selected by mode rather than hidden in exception handling
+
+The Poetry hook layer may ultimately require improvements or patches to Poetry's plugin model. Treat direct interaction
+with Poetry internals as adapter code that should stay small, well tested, and easy to revise when Poetry changes.
+
+## Recommended Policy Modes
+
+The project should grow toward explicit modes rather than a single ambiguous validation behavior:
+
+- **warn**: advisory mode for first adoption and exploratory development. Run validators and report findings, but do not
+  block installs or lockfile writes.
+- **enforce**: default protective mode for regular personal development. Block high-confidence malicious package
+  signals, policy violations, and scanner failures that make validation inconclusive for a newly trusted artifact.
+- **offline**: cached and local-signal mode for travel, constrained networks, or reproducible environments. Avoid
+  network calls and make clear when a verdict is missing because the cache has no prior data.
+- **ci**: deterministic mode for automation. Prefer fail-closed behavior, stable output, no random cache refresh, and
+  clear machine-readable reporting for build logs or future SARIF/JSON output.
+
+Mode semantics should be explicit in tests. Security-sensitive checks should not silently pass because a validator,
+subprocess, network request, or Poetry adapter failed.
 
 ## Code Style & Conventions
 

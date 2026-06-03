@@ -1,4 +1,5 @@
 import asyncio
+import sys
 from dataclasses import dataclass, field
 from importlib.metadata import entry_points
 from pathlib import Path
@@ -96,10 +97,7 @@ class Pipeline:
     async def run_artifact_at_path(self, pkg: PackageRef, path: Path) -> tuple[Finding, ...]:
         if not self.config.enabled or not self.artifact_validators:
             return ()
-        try:
-            return await self._run_artifact_one_at_path(pkg, path)
-        except BaseException:
-            return ()
+        return await self._run_artifact_one_at_path(pkg, path)
 
     async def _run_artifact_one(self, pkg: PackageRef) -> tuple[Finding, ...]:
         if self.fetch_artifact is None:
@@ -113,9 +111,11 @@ class Pipeline:
         if not path.is_file():
             return ()
         sha = VerdictCache.sha256_of(path)
-        return await _gather_findings(
-            self._run_one_artifact_validator(v, pkg, path, sha) for v in self.artifact_validators
+        # Strict gather: validator errors propagate rather than silently passing.
+        results = await asyncio.gather(
+            *(self._run_one_artifact_validator(v, pkg, path, sha) for v in self.artifact_validators)
         )
+        return tuple(f for r in results for f in r)
 
     async def _run_one_artifact_validator(
         self,
@@ -195,6 +195,6 @@ def _load_group(group: str, config: GuardConfig) -> list[Any]:
         try:
             cls = ep.load()
             out.append(cls(config=config))
-        except Exception:
-            continue
+        except Exception as e:
+            print(f"poetry-guard: WARNING: failed to load validator {ep.name!r}: {e}", file=sys.stderr)
     return out

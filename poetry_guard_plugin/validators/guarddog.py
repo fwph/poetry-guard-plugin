@@ -122,13 +122,20 @@ class GuardDogValidator:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        stdout, _ = await proc.communicate()
+        stdout, stderr = await proc.communicate()
         if not stdout:
-            return ()
+            raise RuntimeError(
+                f"guarddog produced no output (exit {proc.returncode}): "
+                f"{stderr.decode(errors='replace')[:300]}"
+            )
         try:
             data = json.loads(stdout)
-        except json.JSONDecodeError:
-            return ()
+        except json.JSONDecodeError as e:
+            raise RuntimeError(f"guarddog output is not valid JSON: {e}") from e
+        errors: dict[str, object] = dict(data.get("errors") or {})
+        if errors:
+            summary = "; ".join(f"{k}: {v}" for k, v in errors.items())
+            raise RuntimeError(f"guarddog scan incomplete — {summary}")
         return self._parse_v2(package, data)
 
     def _parse_v2(self, package: PackageRef, data: dict[str, Any]) -> tuple[Finding, ...]:

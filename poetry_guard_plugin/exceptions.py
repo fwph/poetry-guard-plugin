@@ -15,7 +15,7 @@ class ValidationError(PoetryGuardError):
         lines = ["poetry-guard: validation failed"]
         for f in findings:
             lines.append(f"  [{f.severity.value}] {f.key} :: {f.validator}/{f.rule_id} -- {f.message}")
-        lines.append("re-run with --accept-risk=<pkg@version>[,...] to bypass per package")
+        lines.append("set POETRY_GUARD_ACCEPT_RISK=<pkg@version>[,...] to bypass per package")
         return "\n".join(lines)
 
 

@@ -55,14 +55,36 @@ async def test_real_fixture_code_execution(test_data: Path) -> None:
     import shutil
 
     fixture = test_data / "evil-pkg-1.0.0.tar.gz"
-    if shutil.which("guarddog") is None and not shutil.which("semgrep"):
-        pytest.skip("guarddog or semgrep not available")
+    if shutil.which("guarddog") is None or shutil.which("semgrep") is None:
+        pytest.skip("guarddog and semgrep must both be available")
     v = GuardDogValidator(config=GuardConfig())
     out = await v.validate(PackageRef("evil-pkg", "1.0.0"), fixture)
     rule_ids = {f.rule_id for f in out}
     assert "code-execution" in rule_ids
     hit = next(f for f in out if f.rule_id == "code-execution")
     assert hit.severity is Severity.HIGH
+
+
+@pytest.mark.asyncio
+async def test_errors_field_raises(tmp_path: Path) -> None:
+    artifact = tmp_path / "x.tar.gz"
+    artifact.write_bytes(b"x")
+    payload = json.dumps(
+        {
+            "issues": 0,
+            "errors": {"rules-all": "failed to run rule: unable to find semgrep binary"},
+            "results": {},
+        }
+    ).encode()
+
+    proc = AsyncMock()
+    proc.communicate = AsyncMock(return_value=(payload, b""))
+    with patch("poetry_guard_plugin.validators.guarddog.shutil.which", return_value="/usr/bin/guarddog"), patch(
+        "poetry_guard_plugin.validators.guarddog.asyncio.create_subprocess_exec", new=AsyncMock(return_value=proc)
+    ):
+        v = GuardDogValidator(config=GuardConfig())
+        with pytest.raises(RuntimeError, match="guarddog scan incomplete"):
+            await v.validate(PackageRef("p", "1"), artifact)
 
 
 @pytest.mark.asyncio

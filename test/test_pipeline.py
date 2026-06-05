@@ -48,6 +48,20 @@ class StubArtifactValidator:
         return self.findings_for.get(package.key, ())
 
 
+@dataclass
+class RaisingLockfileValidator:
+    name: str = "raising"
+    rules_version: str = "1"
+    rules: tuple[RuleSpec, ...] = ()
+
+    async def validate(
+        self,
+        resolved: tuple[PackageRef, ...],
+        prior: dict[str, PackageRef],
+    ) -> tuple[Finding, ...]:
+        raise RuntimeError("boom")
+
+
 def _f(pkg: str, ver: str, severity: Severity = Severity.HIGH, validator: str = "stub") -> Finding:
     return Finding(
         validator=validator,
@@ -101,6 +115,19 @@ async def test_artifact_findings_cached_by_sha(tmp_path: Path) -> None:
     b = await pipeline.run_artifact([pkg])
     assert len(a) == 1 == len(b)
     assert calls["n"] == 2  # fetch is called each time, but validator output cached on sha
+
+
+@pytest.mark.asyncio
+async def test_lockfile_validator_errors_propagate(tmp_path: Path) -> None:
+    pkg = PackageRef("a", "1")
+    cache = VerdictCache(tmp_path)
+    pipeline = Pipeline(
+        config=GuardConfig(),
+        cache=cache,
+        lockfile_validators=(RaisingLockfileValidator(),),
+    )
+    with pytest.raises(RuntimeError, match="boom"):
+        await pipeline.run_lockfile([pkg], {})
 
 
 def test_aggregate_blocks_high_severity(tmp_path: Path) -> None:

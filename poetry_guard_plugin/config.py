@@ -1,8 +1,7 @@
+import tomllib
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
-
-import tomlkit
 
 from poetry_guard_plugin.validators.base import Severity
 
@@ -37,7 +36,7 @@ class GuardConfig:
 def load_from_pyproject(pyproject_path: Path) -> GuardConfig:
     if not pyproject_path.is_file():
         return GuardConfig()
-    raw = tomlkit.parse(pyproject_path.read_text())
+    raw = tomllib.loads(pyproject_path.read_text())
     section = raw.get("tool", {}).get("poetry-guard")
     if section is None:
         return GuardConfig()

@@ -48,17 +48,11 @@ class MetadataValidator:
             prior[p.name] for p in resolved if p.name in prior and prior[p.name].version != p.version
         )
         async with aiohttp.ClientSession() as session:
-            current_metas = await asyncio.gather(
-                *(self._fetch(session, p) for p in resolved),
-                return_exceptions=True,
-            )
-            prior_metas = await asyncio.gather(
-                *(self._fetch(session, p) for p in prior_to_fetch),
-                return_exceptions=True,
-            )
+            current_metas = await asyncio.gather(*(self._fetch(session, p) for p in resolved))
+            prior_metas = await asyncio.gather(*(self._fetch(session, p) for p in prior_to_fetch))
         prior_email_by_name: dict[str, str] = {}
         for prior_pkg, meta in zip(prior_to_fetch, prior_metas, strict=True):
-            if isinstance(meta, BaseException) or meta is None:
+            if meta is None:
                 continue
             email = _email_from(meta)
             if email:
@@ -66,7 +60,7 @@ class MetadataValidator:
         now = datetime.now(timezone.utc)
         findings: list[Finding] = []
         for pkg, meta in zip(resolved, current_metas, strict=True):
-            if isinstance(meta, BaseException) or meta is None:
+            if meta is None:
                 continue
             findings.extend(self._check(pkg, meta, prior, prior_email_by_name, now))
         return tuple(findings)

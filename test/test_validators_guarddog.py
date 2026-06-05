@@ -1,4 +1,5 @@
 import json
+import subprocess
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -7,6 +8,19 @@ import pytest
 from poetry_guard_plugin.config import GuardConfig
 from poetry_guard_plugin.validators.base import PackageRef, Severity
 from poetry_guard_plugin.validators.guarddog import GuardDogValidator
+
+
+def _tool_is_usable(name: str, *args: str) -> bool:
+    try:
+        proc = subprocess.run(
+            [name, *args],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except OSError:
+        return False
+    return proc.returncode == 0
 
 
 @pytest.mark.asyncio
@@ -57,6 +71,8 @@ async def test_real_fixture_code_execution(test_data: Path) -> None:
     fixture = test_data / "evil-pkg-1.0.0.tar.gz"
     if shutil.which("guarddog") is None or shutil.which("semgrep") is None:
         pytest.skip("guarddog and semgrep must both be available")
+    if not _tool_is_usable("semgrep", "--version"):
+        pytest.skip("semgrep is installed but not runnable in this environment")
     v = GuardDogValidator(config=GuardConfig())
     out = await v.validate(PackageRef("evil-pkg", "1.0.0"), fixture)
     rule_ids = {f.rule_id for f in out}

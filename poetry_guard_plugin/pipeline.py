@@ -173,11 +173,10 @@ def raise_for_artifact(result: PipelineResult) -> None:
 async def _gather_findings(
     coros: Any,
 ) -> tuple[Finding, ...]:
-    results = await asyncio.gather(*coros, return_exceptions=True)
+    results = await asyncio.gather(*coros)
     findings: list[Finding] = []
-    for r in results:
-        if not isinstance(r, BaseException):
-            findings.extend(r)
+    for result in results:
+        findings.extend(result)
     return tuple(findings)
 
 

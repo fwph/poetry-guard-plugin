@@ -12,11 +12,8 @@ class VerdictCache:
 
     @staticmethod
     def sha256_of(path: Path) -> str:
-        h = hashlib.sha256()
         with path.open("rb") as fh:
-            for chunk in iter(lambda: fh.read(65536), b""):
-                h.update(chunk)
-        return h.hexdigest()
+            return hashlib.file_digest(fh, "sha256").hexdigest()
 
     def _artifact_path(self, validator: str, rules_version: str, sha256: str) -> Path:
         return self._root / "artifact" / validator / rules_version / f"{sha256}.json"
@@ -58,7 +55,7 @@ class VerdictCache:
     def _read(path: Path) -> tuple[Finding, ...] | None:
         if not path.is_file():
             return None
-        data = json.loads(path.read_text())
+        data = json.loads(path.read_text(encoding="utf-8"))
         return tuple(_finding_from_dict(d) for d in data["findings"])
 
     @staticmethod
@@ -66,7 +63,7 @@ class VerdictCache:
         path.parent.mkdir(parents=True, exist_ok=True)
         payload = {"findings": [_finding_to_dict(f) for f in findings]}
         tmp = path.with_suffix(".json.tmp")
-        tmp.write_text(json.dumps(payload, indent=2, sort_keys=True))
+        tmp.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
         tmp.replace(path)
 
 

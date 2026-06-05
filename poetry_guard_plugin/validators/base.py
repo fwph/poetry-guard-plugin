@@ -14,16 +14,26 @@ class Severity(StrEnum):
     def __lt__(self, other: object) -> bool:
         if not isinstance(other, Severity):
             return NotImplemented
-        return list(self.__class__).index(self) < list(self.__class__).index(other)
+        members = tuple(self.__class__)
+        return members.index(self) < members.index(other)
 
     def __le__(self, other: object) -> bool:
-        return self < other or self == other
+        if not isinstance(other, Severity):
+            return NotImplemented
+        members = tuple(self.__class__)
+        return members.index(self) <= members.index(other)
 
     def __gt__(self, other: object) -> bool:
-        return not self <= other
+        if not isinstance(other, Severity):
+            return NotImplemented
+        members = tuple(self.__class__)
+        return members.index(self) > members.index(other)
 
     def __ge__(self, other: object) -> bool:
-        return not self < other
+        if not isinstance(other, Severity):
+            return NotImplemented
+        members = tuple(self.__class__)
+        return members.index(self) >= members.index(other)
 
 
 @dataclass(frozen=True)

@@ -22,6 +22,13 @@ def _is_stale(path: Path) -> bool:
     return random.random() > RANDOM_BUST_FACTOR
 
 
+def _read_cached_json(path: Path) -> dict[str, Any] | None:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))  # type: ignore[no-any-return]
+    except json.JSONDecodeError:
+        return None
+
+
 async def fetch_json(
     session: aiohttp.ClientSession,
     url: str,
@@ -30,10 +37,9 @@ async def fetch_json(
 ) -> dict[str, Any] | None:
     cache_path = cache_dir / f"{_key(url)}.json"
     if cache_path.is_file() and not _is_stale(cache_path):
-        try:
-            return json.loads(cache_path.read_text())  # type: ignore[no-any-return]
-        except json.JSONDecodeError:
-            pass
+        cached = _read_cached_json(cache_path)
+        if cached is not None:
+            return cached
     try:
         async with session.get(url, timeout=aiohttp.ClientTimeout(total=timeout)) as r:
             if r.status != 200:
@@ -41,13 +47,10 @@ async def fetch_json(
             data: dict[str, Any] = await r.json()
     except aiohttp.ClientError:
         if cache_path.is_file():
-            try:
-                return json.loads(cache_path.read_text())  # type: ignore[no-any-return]
-            except json.JSONDecodeError:
-                return None
+            return _read_cached_json(cache_path)
         return None
     cache_dir.mkdir(parents=True, exist_ok=True)
     tmp = cache_path.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(data))
+    tmp.write_text(json.dumps(data), encoding="utf-8")
     tmp.replace(cache_path)
     return data

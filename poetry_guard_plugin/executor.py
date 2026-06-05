@@ -54,7 +54,8 @@ class GuardExecutor(Executor):
             if package.source_type == "file":
                 # Scan the raw sdist/tarball, not the wheel built from it.
                 # _prepare_archive() builds a wheel; setup.py patterns would be lost.
-                assert package.source_url is not None
+                if package.source_url is None:
+                    return None
                 p = Path(package.source_url)
                 root_dir: Path | None = getattr(package, "root_dir", None)
                 if not p.is_absolute() and root_dir is not None:
@@ -65,7 +66,8 @@ class GuardExecutor(Executor):
             if package.source_type == "url":
                 from poetry.core.packages.utils.link import Link
 
-                assert package.source_url is not None
+                if package.source_url is None:
+                    return None
                 return self._download_link(operation, Link(package.source_url))
             return self._download(operation)
         except Exception:

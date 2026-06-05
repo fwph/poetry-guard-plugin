@@ -12,7 +12,6 @@ regex = "*"
 poetry = ">=2.0,<3"
 guarddog = "^2.10"
 aiohttp = "*"
-tomlkit = "*"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "*"

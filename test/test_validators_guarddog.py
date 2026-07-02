@@ -34,20 +34,26 @@ async def test_no_binary_returns_empty(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_parses_v2_source_rule_finding(tmp_path: Path) -> None:
+async def test_parses_v3_risk_finding(tmp_path: Path) -> None:
     artifact = tmp_path / "x.tar.gz"
     artifact.write_bytes(b"x")
     payload = json.dumps(
         {
-            "issues": 1,
+            "issues": 3,
             "errors": {},
-            "results": {
-                "exec-base64": [
-                    {"location": "x/setup.py:3", "code": "exec(...)", "message": "bad"},
-                ],
-                "typosquatting": None,
-                "empty_information": None,
-            },
+            "results": {},
+            "risk_score": {"score": 8.2, "label": "high_risk", "findings_count": 2},
+            "risks": [
+                {
+                    "name": "risk.process.spawn",
+                    "category": "process",
+                    "severity": "high",
+                    "threat_rule": "threat-process-download-exec",
+                    "threat_description": "Detects download-and-execute patterns",
+                    "threat_location": "x/setup.py:3",
+                    "file_path": "x/setup.py",
+                }
+            ],
         }
     ).encode()
 
@@ -59,25 +65,25 @@ async def test_parses_v2_source_rule_finding(tmp_path: Path) -> None:
         v = GuardDogValidator(config=GuardConfig())
         out = await v.validate(PackageRef("p", "1"), artifact)
     assert len(out) == 1
-    assert out[0].rule_id == "exec-base64"
+    assert out[0].rule_id == "threat-process-download-exec"
     assert out[0].severity is Severity.HIGH
 
 
 @pytest.mark.asyncio
 async def test_real_fixture_code_execution(test_data: Path) -> None:
-    """Real guarddog run on the bundled evil-pkg fixture — requires semgrep on PATH."""
+    """Real guarddog run on the bundled evil-pkg fixture."""
     import shutil
 
     fixture = test_data / "evil-pkg-1.0.0.tar.gz"
-    if shutil.which("guarddog") is None or shutil.which("semgrep") is None:
-        pytest.skip("guarddog and semgrep must both be available")
-    if not _tool_is_usable("semgrep", "--version"):
-        pytest.skip("semgrep is installed but not runnable in this environment")
+    if shutil.which("guarddog") is None:
+        pytest.skip("guarddog must be available")
+    if not _tool_is_usable("guarddog", "--version"):
+        pytest.skip("guarddog is installed but not runnable in this environment")
     v = GuardDogValidator(config=GuardConfig())
     out = await v.validate(PackageRef("evil-pkg", "1.0.0"), fixture)
     rule_ids = {f.rule_id for f in out}
-    assert "code-execution" in rule_ids
-    hit = next(f for f in out if f.rule_id == "code-execution")
+    assert "threat-process-download-exec" in rule_ids
+    hit = next(f for f in out if f.rule_id == "threat-process-download-exec")
     assert hit.severity is Severity.HIGH
 
 
@@ -88,7 +94,7 @@ async def test_errors_field_raises(tmp_path: Path) -> None:
     payload = json.dumps(
         {
             "issues": 0,
-            "errors": {"rules-all": "failed to run rule: unable to find semgrep binary"},
+            "errors": {"rules-all": "failed to run rule set"},
             "results": {},
         }
     ).encode()
@@ -104,14 +110,23 @@ async def test_errors_field_raises(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_metadata_rule_lower_severity(tmp_path: Path) -> None:
+async def test_risk_threshold_filters_lower_scores(tmp_path: Path) -> None:
     artifact = tmp_path / "x.tar.gz"
     artifact.write_bytes(b"x")
     payload = json.dumps(
         {
             "issues": 1,
             "errors": {},
-            "results": {"empty_information": True},
+            "results": {},
+            "risk_score": {"score": 3.0, "label": "low_risk", "findings_count": 1},
+            "risks": [
+                {
+                    "name": "risk.metadata.typosquat",
+                    "category": "metadata",
+                    "severity": "low",
+                    "threat_rule": "threat-pypi-typosquatting",
+                }
+            ],
         }
     ).encode()
 
@@ -122,6 +137,4 @@ async def test_metadata_rule_lower_severity(tmp_path: Path) -> None:
     ):
         v = GuardDogValidator(config=GuardConfig())
         out = await v.validate(PackageRef("p", "1"), artifact)
-    assert len(out) == 1
-    assert out[0].rule_id == "empty_information"
-    assert out[0].severity is Severity.LOW
+    assert out == ()

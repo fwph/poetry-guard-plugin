@@ -1,25 +1,9 @@
 """GuardDog artifact validator.
 
-Shells out to the `guarddog` CLI (DataDog/guarddog). The JSON output shape on
-v2.10 is roughly:
-
-    {
-        "issues": int,                           # total non-empty results
-        "errors": {rule: errmsg, ...},
-        "results": {rule_id: None | list | dict, ...},
-        "package": str,
-        "path": str,
-    }
-
-For source rules, a populated result is a list of {location, code, message}.
-For metadata rules, it's rule-specific: a non-empty list/dict means the rule
-fired, an empty/None value means it did not.
-
-GuardDog v3 (alpha as of 2026-05-26, see DataDog/guarddog #706 / #742) replaces
-this with a risk-correlation engine emitting a single 0-10 score per package
-along MITRE ATT&CK chains. When v3 ships, swap the parser in `_parse_v2` for a
-`_parse_v3` that thresholds on `risk_threshold`. Everything else in this module
-should stay put.
+GuardDog v3 emits both low-level rule matches under ``results`` and correlated
+package risks under ``risks`` plus an aggregate ``risk_score`` payload. The
+correlated risks are the useful signal for Poetry Guard because they already
+combine capability and threat evidence and provide a severity label.
 """
 
 import asyncio
@@ -32,76 +16,30 @@ from typing import Any
 from poetry_guard_plugin.config import GuardConfig
 from poetry_guard_plugin.validators.base import Finding, PackageRef, RuleSpec, Severity
 
-_SOURCE_RULES = {
-    "api-obfuscation",
-    "shady-links",
-    "pyarmor",
-    "obfuscation",
-    "clipboard-access",
-    "exfiltrate-sensitive-data",
-    "download-executable",
-    "exec-base64",
-    "silent-process-execution",
-    "dll-hijacking",
-    "screenshot",
-    "steganography",
-    "code-execution",
-    "unicode",
-    "cmd-overwrite",
-    "suspicious_passwd_access_linux",
-}
-
-_METADATA_RULES = {
-    "empty_information",
-    "release_zero",
-    "typosquatting",
-    "potentially_compromised_email_domain",
-    "unclaimed_maintainer_email_domain",
-    "repository_integrity_mismatch",
-    "single_python_file",
-    "bundled_binary",
-    "deceptive_author",
-}
-
-_HIGH_SEVERITY_SOURCE = {
-    "exec-base64",
-    "exfiltrate-sensitive-data",
-    "download-executable",
-    "silent-process-execution",
-    "code-execution",
-    "cmd-overwrite",
-    "steganography",
-    "dll-hijacking",
-    "suspicious_passwd_access_linux",
-}
-
-_HIGH_SEVERITY_METADATA = {
-    "potentially_compromised_email_domain",
-    "unclaimed_maintainer_email_domain",
-    "typosquatting",
-}
-
-
 def _rules() -> tuple[RuleSpec, ...]:
-    out: list[RuleSpec] = []
-    for r in _SOURCE_RULES:
-        sev = Severity.HIGH if r in _HIGH_SEVERITY_SOURCE else Severity.MODERATE
-        out.append(RuleSpec(rule_id=r, default_severity=sev, description=f"GuardDog source rule {r}"))
-    for r in _METADATA_RULES:
-        sev = Severity.HIGH if r in _HIGH_SEVERITY_METADATA else Severity.LOW
-        out.append(RuleSpec(rule_id=r, default_severity=sev, description=f"GuardDog metadata rule {r}"))
-    return tuple(out)
+    return (
+        RuleSpec(rule_id="guarddog-low-risk", default_severity=Severity.LOW, description="GuardDog low-risk package"),
+        RuleSpec(
+            rule_id="guarddog-medium-risk",
+            default_severity=Severity.MODERATE,
+            description="GuardDog medium-risk package",
+        ),
+        RuleSpec(
+            rule_id="guarddog-high-risk",
+            default_severity=Severity.HIGH,
+            description="GuardDog high-risk package",
+        ),
+    )
 
 
 _RULES = _rules()
-_RULE_SEVERITY: dict[str, Severity] = {r.rule_id: r.default_severity for r in _RULES}
 
 
 @dataclass
 class GuardDogValidator:
     config: GuardConfig
     name: str = "guarddog"
-    rules_version: str = "v2.10"
+    rules_version: str = "v3.0"
     rules: tuple[RuleSpec, ...] = _RULES
 
     async def validate(
@@ -136,16 +74,36 @@ class GuardDogValidator:
         if errors:
             summary = "; ".join(f"{k}: {v}" for k, v in errors.items())
             raise RuntimeError(f"guarddog scan incomplete — {summary}")
-        return self._parse_v2(package, data)
+        if "risk_score" in data or "risks" in data:
+            return self._parse_v3(package, data)
+        return self._parse_v2_compat(package, data)
 
-    def _parse_v2(self, package: PackageRef, data: dict[str, Any]) -> tuple[Finding, ...]:
-        results = data.get("results") or {}
+    def _parse_v3(self, package: PackageRef, data: dict[str, Any]) -> tuple[Finding, ...]:
+        risk_score = data.get("risk_score")
+        if not isinstance(risk_score, dict):
+            return ()
+        raw_score = risk_score.get("score")
+        if not isinstance(raw_score, int | float):
+            return ()
+        if raw_score < self.config.guarddog_risk_threshold:
+            return ()
+
+        risks = data.get("risks")
+        if not isinstance(risks, list):
+            return ()
+
         findings: list[Finding] = []
-        for rule_id, value in results.items():
-            if not value:
+        aggregate_severity = self._severity_from_label(risk_score.get("label"))
+        for risk in risks:
+            if not isinstance(risk, dict):
                 continue
-            severity = self._severity_for(rule_id)
-            message, detail = self._describe(rule_id, value)
+            rule_id = str(risk.get("threat_rule") or risk.get("name") or "guarddog-risk")
+            severity = self._severity_from_label(risk.get("severity")) or aggregate_severity
+            message = self._message_for_risk(rule_id, risk)
+            detail = {
+                "risk": risk,
+                "risk_score": risk_score,
+            }
             findings.append(
                 Finding(
                     validator=self.name,
@@ -159,11 +117,56 @@ class GuardDogValidator:
             )
         return tuple(findings)
 
-    def _severity_for(self, rule_id: str) -> Severity:
-        return _RULE_SEVERITY.get(rule_id, Severity.LOW)
+    def _parse_v2_compat(self, package: PackageRef, data: dict[str, Any]) -> tuple[Finding, ...]:
+        results = data.get("results")
+        if not isinstance(results, dict):
+            return ()
+        findings: list[Finding] = []
+        for rule_id, value in results.items():
+            if not value:
+                continue
+            severity = Severity.HIGH if "threat" in rule_id or "download-exec" in rule_id else Severity.MODERATE
+            if "metadata" in rule_id:
+                severity = Severity.LOW
+            message, detail = self._describe_compat(rule_id, value)
+            findings.append(
+                Finding(
+                    validator=self.name,
+                    rule_id=str(rule_id),
+                    severity=severity,
+                    package_name=package.name,
+                    package_version=package.version,
+                    message=message,
+                    detail=detail,
+                )
+            )
+        return tuple(findings)
 
     @staticmethod
-    def _describe(rule_id: str, value: object) -> tuple[str, dict[str, object]]:
+    def _severity_from_label(label: object) -> Severity:
+        if label in ("high", "high_risk"):
+            return Severity.HIGH
+        if label in ("medium", "medium_risk"):
+            return Severity.MODERATE
+        if label in ("low", "low_risk"):
+            return Severity.LOW
+        return Severity.LOW
+
+    @staticmethod
+    def _message_for_risk(rule_id: str, risk: dict[str, Any]) -> str:
+        description = risk.get("threat_description")
+        location = risk.get("threat_location") or risk.get("file_path")
+        if isinstance(description, str) and description:
+            if isinstance(location, str) and location:
+                return f"GuardDog {rule_id}: {description} ({location})"
+            return f"GuardDog {rule_id}: {description}"
+        name = str(risk.get("name") or rule_id)
+        if isinstance(location, str) and location:
+            return f"GuardDog {name} ({location})"
+        return f"GuardDog {name}"
+
+    @staticmethod
+    def _describe_compat(rule_id: object, value: object) -> tuple[str, dict[str, object]]:
         if isinstance(value, list):
             count = len(value)
             first_loc = ""

@@ -11,7 +11,7 @@ def test_data() -> Path:
 
 @pytest.fixture(autouse=True)
 def semgrep_on_path(monkeypatch: pytest.MonkeyPatch, tmp_path_factory: pytest.TempPathFactory) -> None:
-    """Provide guarddog with a writable Semgrep environment during tests."""
+    """Provide guarddog with a writable tool environment during tests."""
     env_root = tmp_path_factory.mktemp("semgrep-env")
     home_dir = env_root / "home"
     xdg_config_dir = env_root / "config"
@@ -27,6 +27,27 @@ def semgrep_on_path(monkeypatch: pytest.MonkeyPatch, tmp_path_factory: pytest.Te
 
     venv_bin = Path(__file__).parent.parent / ".venv" / "bin"
     if venv_bin.is_dir():
+        guarddog_target = venv_bin / "guarddog"
+        if guarddog_target.is_file():
+            guarddog_shim_path = shim_bin_dir / "guarddog"
+            guarddog_shim_path.write_text(
+                "\n".join(
+                    [
+                        "#!/bin/sh",
+                        f'export HOME="{home_dir}"',
+                        f'export XDG_CONFIG_HOME="{xdg_config_dir}"',
+                        f'export XDG_CACHE_HOME="{xdg_cache_dir}"',
+                        f'export XDG_DATA_HOME="{xdg_data_dir}"',
+                        'if [ "$1" = "--version" ] || [ "$1" = "--help" ]; then',
+                        f'  exec "{guarddog_target}" "$@"',
+                        "fi",
+                        f'exec "{guarddog_target}" "$@" --no-sandbox',
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            guarddog_shim_path.chmod(0o755)
         semgrep_target = venv_bin / "pysemgrep"
         if not semgrep_target.is_file():
             semgrep_target = venv_bin / "semgrep"

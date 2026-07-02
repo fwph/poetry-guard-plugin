@@ -111,6 +111,26 @@ poetry run bandit -r . -ll
 poetry run pytest
 ```
 
+## Poetry Plugin Compatibility
+
+When Poetry Guard is installed as a project plugin via `tool.poetry.requires-plugins`, dependency resolution happens
+against Poetry's own runtime environment, not just the target project's virtualenv. In practice, that means an older
+Poetry installation can block plugin installation if its bundled dependencies are too old for Poetry Guard or one of
+its transitive dependencies.
+
+If plugin installation fails with version-solving errors involving packages such as `requests` or `urllib3`, upgrade
+or reinstall Poetry itself before assuming the target project is misconfigured.
+
+If Poetry was installed with `pipx`, a full reinstall is often the fastest fix:
+
+```bash
+pipx uninstall poetry
+pipx install poetry
+```
+
+This resets Poetry's own dependency environment, which can otherwise accumulate incompatible package versions across
+upgrades.
+
 ## Configuration
 
 Configuration is read from `[tool.poetry-guard]` in `pyproject.toml`.

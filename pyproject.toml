@@ -1,5 +1,5 @@
 [tool.poetry]
-name = "poetry_guard_plugin"
+name = "poetry-guard-plugin"
 version = "0.1.0"
 description = "Plugin for Poetry that wraps dependency installs/updates with a validation process to check for potential supply chain attacks"
 authors = ["Fritz Heckel <fwph@fwph.net>"]
@@ -10,10 +10,10 @@ repository = "https://github.com/fwph/poetry-guard-plugin"
 packages = [{include = "poetry_guard_plugin"}]
 
 [tool.poetry.dependencies]
-python = "^3.14"
+python = "^3.12"
 regex = "*"
 poetry = ">=2.0,<3"
-guarddog = "^2.10"
+guarddog = "^3.0"
 aiohttp = "*"
 
 [tool.poetry.group.dev.dependencies]
@@ -44,7 +44,7 @@ guarddog = "poetry_guard_plugin.validators.guarddog:GuardDogValidator"
 line-length = 120
 
 [tool.mypy]
-python_version = "3.14"
+python_version = "3.12"
 strict = true
 ignore_missing_imports = true
 explicit_package_bases = true

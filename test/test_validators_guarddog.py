@@ -59,8 +59,11 @@ async def test_parses_v3_risk_finding(tmp_path: Path) -> None:
 
     proc = AsyncMock()
     proc.communicate = AsyncMock(return_value=(payload, b""))
-    with patch("poetry_guard_plugin.validators.guarddog.shutil.which", return_value="/usr/bin/guarddog"), patch(
-        "poetry_guard_plugin.validators.guarddog.asyncio.create_subprocess_exec", new=AsyncMock(return_value=proc)
+    with (
+        patch("poetry_guard_plugin.validators.guarddog.shutil.which", return_value="/usr/bin/guarddog"),
+        patch(
+            "poetry_guard_plugin.validators.guarddog.asyncio.create_subprocess_exec", new=AsyncMock(return_value=proc)
+        ),
     ):
         v = GuardDogValidator(config=GuardConfig())
         out = await v.validate(PackageRef("p", "1"), artifact)
@@ -101,8 +104,11 @@ async def test_errors_field_raises(tmp_path: Path) -> None:
 
     proc = AsyncMock()
     proc.communicate = AsyncMock(return_value=(payload, b""))
-    with patch("poetry_guard_plugin.validators.guarddog.shutil.which", return_value="/usr/bin/guarddog"), patch(
-        "poetry_guard_plugin.validators.guarddog.asyncio.create_subprocess_exec", new=AsyncMock(return_value=proc)
+    with (
+        patch("poetry_guard_plugin.validators.guarddog.shutil.which", return_value="/usr/bin/guarddog"),
+        patch(
+            "poetry_guard_plugin.validators.guarddog.asyncio.create_subprocess_exec", new=AsyncMock(return_value=proc)
+        ),
     ):
         v = GuardDogValidator(config=GuardConfig())
         with pytest.raises(RuntimeError, match="guarddog scan incomplete"):
@@ -132,8 +138,11 @@ async def test_risk_threshold_filters_lower_scores(tmp_path: Path) -> None:
 
     proc = AsyncMock()
     proc.communicate = AsyncMock(return_value=(payload, b""))
-    with patch("poetry_guard_plugin.validators.guarddog.shutil.which", return_value="/usr/bin/guarddog"), patch(
-        "poetry_guard_plugin.validators.guarddog.asyncio.create_subprocess_exec", new=AsyncMock(return_value=proc)
+    with (
+        patch("poetry_guard_plugin.validators.guarddog.shutil.which", return_value="/usr/bin/guarddog"),
+        patch(
+            "poetry_guard_plugin.validators.guarddog.asyncio.create_subprocess_exec", new=AsyncMock(return_value=proc)
+        ),
     ):
         v = GuardDogValidator(config=GuardConfig())
         out = await v.validate(PackageRef("p", "1"), artifact)

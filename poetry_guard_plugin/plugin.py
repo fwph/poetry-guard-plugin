@@ -52,6 +52,9 @@ class GuardApplicationPlugin(ApplicationPlugin):
         event_name: str,
         dispatcher: EventDispatcher,
     ) -> None:
+        def _discard(_msg: str) -> None:
+            return None
+
         cmd = getattr(event, "command", None)
         if not isinstance(cmd, InstallerCommand):
             return
@@ -61,12 +64,12 @@ class GuardApplicationPlugin(ApplicationPlugin):
         config = load_from_pyproject(pyproject_path)
         config = self._apply_cli_overrides(event, config)
         io = getattr(event, "io", None)
-        report: Callable[[str], None] = io.write_line if io is not None else (lambda _msg: None)
+        report: Callable[[str], None] = io.write_line if io is not None else _discard
         verbose_report: Callable[[str], None]
         if io is not None and io.is_verbose():
             verbose_report = io.write_line
         else:
-            verbose_report = lambda _msg: None
+            verbose_report = _discard
         if not config.enabled:
             report("<comment>poetry-guard: disabled, skipping validation</>")
             return

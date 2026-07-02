@@ -16,7 +16,19 @@ class VerdictCache:
             return hashlib.file_digest(fh, "sha256").hexdigest()
 
     def _artifact_path(self, validator: str, rules_version: str, sha256: str) -> Path:
-        return self._root / "artifact" / validator / rules_version / f"{sha256}.json"
+        return self._artifact_path_with_context(validator, rules_version, sha256, None)
+
+    def _artifact_path_with_context(
+        self,
+        validator: str,
+        rules_version: str,
+        sha256: str,
+        cache_context_hash: str | None,
+    ) -> Path:
+        base = self._root / "artifact" / validator / rules_version
+        if cache_context_hash:
+            base = base / cache_context_hash
+        return base / f"{sha256}.json"
 
     def _lockfile_path(self, validator: str, rules_version: str, package: PackageRef) -> Path:
         return self._lockfile_path_with_context(validator, rules_version, package, None)
@@ -34,8 +46,15 @@ class VerdictCache:
             base = base / cache_context_hash
         return base / f"{safe_name}@{package.version}.json"
 
-    def get_artifact(self, validator: str, rules_version: str, sha256: str) -> tuple[Finding, ...] | None:
-        return self._read(self._artifact_path(validator, rules_version, sha256))
+    def get_artifact(
+        self,
+        validator: str,
+        rules_version: str,
+        sha256: str,
+        *,
+        cache_context_hash: str | None = None,
+    ) -> tuple[Finding, ...] | None:
+        return self._read(self._artifact_path_with_context(validator, rules_version, sha256, cache_context_hash))
 
     def put_artifact(
         self,
@@ -43,8 +62,10 @@ class VerdictCache:
         rules_version: str,
         sha256: str,
         findings: tuple[Finding, ...],
+        *,
+        cache_context_hash: str | None = None,
     ) -> None:
-        self._write(self._artifact_path(validator, rules_version, sha256), findings)
+        self._write(self._artifact_path_with_context(validator, rules_version, sha256, cache_context_hash), findings)
 
     def get_lockfile(
         self,

@@ -1,6 +1,5 @@
 import asyncio
 import json
-import sys
 from dataclasses import dataclass, field
 from importlib.metadata import entry_points
 from pathlib import Path
@@ -148,11 +147,16 @@ class Pipeline:
         path: Path,
         sha: str,
     ) -> tuple[Finding, ...]:
-        hit = self.cache.get_artifact(validator.name, validator.rules_version, sha)
+        cache_context_hash = validator.artifact_cache_context_hash()
+        hit = self.cache.get_artifact(
+            validator.name, validator.rules_version, sha, cache_context_hash=cache_context_hash
+        )
         if hit is not None:
             return hit
         fresh = await validator.validate(pkg, path)
-        self.cache.put_artifact(validator.name, validator.rules_version, sha, fresh)
+        self.cache.put_artifact(
+            validator.name, validator.rules_version, sha, fresh, cache_context_hash=cache_context_hash
+        )
         return fresh
 
     def aggregate(self, findings: tuple[Finding, ...]) -> PipelineResult:
@@ -235,5 +239,5 @@ def _load_group(group: str, config: GuardConfig) -> list[Any]:
             cls = ep.load()
             out.append(cls(config=config))
         except Exception as e:
-            print(f"poetry-guard: WARNING: failed to load validator {ep.name!r}: {e}", file=sys.stderr)
+            raise RuntimeError(f"poetry-guard: failed to load validator {ep.name!r}: {e}") from e
     return out

@@ -1,4 +1,5 @@
 from poetry_guard_plugin.exceptions import (
+    ArtifactResolutionError,
     ArtifactValidationError,
     LockValidationError,
     PoetryGuardError,
@@ -16,6 +17,7 @@ from poetry_guard_plugin.validators.base import (
 
 __all__ = [
     "ArtifactValidationError",
+    "ArtifactResolutionError",
     "ArtifactValidator",
     "Finding",
     "LockValidationError",

@@ -7,6 +7,7 @@ combine capability and threat evidence and provide a severity label.
 """
 
 import asyncio
+import hashlib
 import json
 import shutil
 from dataclasses import dataclass
@@ -42,6 +43,14 @@ class GuardDogValidator(ArtifactValidator):
     name: str = "guarddog"
     rules_version: str = "v3.0"
     rules: tuple[RuleSpec, ...] = _RULES
+
+    def artifact_cache_context_hash(self) -> str:
+        payload = json.dumps(
+            {"guarddog_risk_threshold": self.config.guarddog_risk_threshold},
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
     async def validate(
         self,

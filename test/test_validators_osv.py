@@ -58,3 +58,12 @@ async def test_clean_packages_no_findings() -> None:
         v = OsvValidator(config=GuardConfig())
         out = await v.validate((PackageRef("a", "1"), PackageRef("b", "2")), {})
     assert out == ()
+
+
+def test_cache_context_changes_with_config() -> None:
+    base = OsvValidator(config=GuardConfig())
+    severity_changed = OsvValidator(config=GuardConfig(osv_severity=Severity.HIGH))
+    url_changed = OsvValidator(config=GuardConfig(osv_url="https://osv.example.test/querybatch"))
+
+    assert base.lockfile_cache_context_hash() != severity_changed.lockfile_cache_context_hash()
+    assert base.lockfile_cache_context_hash() != url_changed.lockfile_cache_context_hash()

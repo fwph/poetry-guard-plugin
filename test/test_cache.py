@@ -27,6 +27,15 @@ def test_artifact_round_trip(tmp_path: Path) -> None:
     assert hit[0].rule_id == "r1"
 
 
+def test_artifact_cache_can_be_scoped_by_context(tmp_path: Path) -> None:
+    cache = VerdictCache(tmp_path)
+    sha = "b" * 64
+    finding = _finding()
+    cache.put_artifact("guarddog", "v3.0", sha, (finding,), cache_context_hash="ctx-a")
+    assert cache.get_artifact("guarddog", "v3.0", sha, cache_context_hash="ctx-b") is None
+    assert cache.get_artifact("guarddog", "v3.0", sha, cache_context_hash="ctx-a") == (finding,)
+
+
 def test_lockfile_round_trip(tmp_path: Path) -> None:
     cache = VerdictCache(tmp_path)
     pkg = PackageRef(name="pkg", version="1.0")

@@ -51,13 +51,19 @@ class StubArtifactValidator(ArtifactValidator):
     name: str = "stub-art"
     rules_version: str = "1"
     rules: tuple[RuleSpec, ...] = ()
+    cache_context_hash: str | None = None
+    calls: int = 0
 
     async def validate(
         self,
         package: PackageRef,
         artifact_path: Path,
     ) -> tuple[Finding, ...]:
+        self.calls += 1
         return self.findings_for.get(package.key, ())
+
+    def artifact_cache_context_hash(self) -> str | None:
+        return self.cache_context_hash
 
 
 @dataclass
@@ -282,6 +288,56 @@ async def test_artifact_findings_cached_by_sha(tmp_path: Path) -> None:
     b = await pipeline.run_artifact([pkg])
     assert len(a) == 1 == len(b)
     assert calls["n"] == 2  # fetch is called each time, but validator output cached on sha
+
+
+@pytest.mark.asyncio
+async def test_artifact_cache_is_scoped_by_validator_cache_context(tmp_path: Path) -> None:
+    pkg = PackageRef("a", "1")
+    artifact = tmp_path / "art.tar.gz"
+    artifact.write_bytes(b"hello")
+    finding = _f("a", "1", validator="stub-art")
+    first_validator = StubArtifactValidator(
+        findings_for={pkg.key: (finding,)},
+        cache_context_hash="ctx-a",
+    )
+    cache = VerdictCache(tmp_path / "cache")
+    first_pipeline = Pipeline(
+        config=GuardConfig(),
+        cache=cache,
+        artifact_validators=(first_validator,),
+    )
+    first = await first_pipeline.run_artifact_at_path(pkg, artifact)
+    assert first == (finding,)
+
+    second_validator = StubArtifactValidator(
+        findings_for={},
+        cache_context_hash="ctx-b",
+    )
+    second_pipeline = Pipeline(
+        config=GuardConfig(),
+        cache=cache,
+        artifact_validators=(second_validator,),
+    )
+
+    second = await second_pipeline.run_artifact_at_path(pkg, artifact)
+
+    assert second == ()
+    assert second_validator.calls == 1
+
+
+def test_entry_point_load_errors_fail_closed(tmp_path: Path) -> None:
+    class FailingEntryPoint:
+        name = "broken"
+
+        @staticmethod
+        def load() -> object:
+            raise RuntimeError("boom")
+
+    cache = VerdictCache(tmp_path)
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        monkeypatch.setattr("poetry_guard_plugin.pipeline.entry_points", lambda group: (FailingEntryPoint(),))
+        with pytest.raises(RuntimeError, match="failed to load validator 'broken'"):
+            Pipeline.from_entry_points(config=GuardConfig(), cache=cache, fetch_artifact=None)
 
 
 @pytest.mark.asyncio

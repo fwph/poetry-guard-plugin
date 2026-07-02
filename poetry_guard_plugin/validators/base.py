@@ -110,6 +110,9 @@ class ArtifactValidator(ABC):
     rules_version: str
     rules: tuple[RuleSpec, ...]
 
+    def artifact_cache_context_hash(self) -> str | None:
+        return None
+
     @abstractmethod
     async def validate(
         self,

@@ -1,6 +1,7 @@
 import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from email.utils import getaddresses
 from typing import Any
 
 import aiohttp
@@ -13,7 +14,12 @@ _RULES = (
     RuleSpec(
         rule_id="maintainer_changed",
         default_severity=Severity.HIGH,
-        description="Maintainer/author email differs from prior lock entry",
+        description="Maintainer/author roster has no overlap with the prior release",
+    ),
+    RuleSpec(
+        rule_id="maintainer_roster_changed",
+        default_severity=Severity.MODERATE,
+        description="Maintainer/author roster changed but still overlaps with the prior release",
     ),
     RuleSpec(
         rule_id="too_new",
@@ -50,19 +56,19 @@ class MetadataValidator:
         async with aiohttp.ClientSession() as session:
             current_metas = await asyncio.gather(*(self._fetch(session, p) for p in resolved))
             prior_metas = await asyncio.gather(*(self._fetch(session, p) for p in prior_to_fetch))
-        prior_email_by_name: dict[str, str] = {}
+        prior_emails_by_name: dict[str, frozenset[str]] = {}
         for prior_pkg, meta in zip(prior_to_fetch, prior_metas, strict=True):
             if meta is None:
                 continue
-            email = _email_from(meta)
-            if email:
-                prior_email_by_name[prior_pkg.name] = email
+            emails = _emails_from(meta)
+            if emails:
+                prior_emails_by_name[prior_pkg.name] = emails
         now = datetime.now(timezone.utc)
         findings: list[Finding] = []
         for pkg, meta in zip(resolved, current_metas, strict=True):
             if meta is None:
                 continue
-            findings.extend(self._check(pkg, meta, prior, prior_email_by_name, now))
+            findings.extend(self._check(pkg, meta, prior, prior_emails_by_name, now))
         return tuple(findings)
 
     async def _fetch(self, session: aiohttp.ClientSession, pkg: PackageRef) -> dict[str, Any] | None:
@@ -74,7 +80,7 @@ class MetadataValidator:
         pkg: PackageRef,
         meta: dict[str, Any],
         prior: dict[str, PackageRef],
-        prior_email_by_name: dict[str, str],
+        prior_emails_by_name: dict[str, frozenset[str]],
         now: datetime,
     ) -> list[Finding]:
         info = meta.get("info") or {}
@@ -103,22 +109,52 @@ class MetadataValidator:
 
         prior_pkg = prior.get(pkg.name)
         if prior_pkg and prior_pkg.version != pkg.version:
-            current_email = (info.get("author_email") or info.get("maintainer_email") or "").strip().lower()
-            prior_email = prior_email_by_name.get(pkg.name)
-            if current_email and prior_email and current_email != prior_email:
-                out.append(Finding(
-                    validator=self.name, rule_id="maintainer_changed", severity=Severity.HIGH,
-                    package_name=pkg.name, package_version=pkg.version,
-                    message=(
-                        f"{pkg.key}: author email changed since {prior_pkg.version}"
-                        f" ({prior_email!r} -> {current_email!r})"
-                    ),
-                    detail={
-                        "prior_version": prior_pkg.version,
-                        "prior_email": prior_email,
-                        "current_email": current_email,
-                    },
-                ))
+            current_emails = _emails_from(meta)
+            prior_emails = prior_emails_by_name.get(pkg.name)
+            if current_emails and prior_emails and current_emails != prior_emails:
+                overlap = sorted(current_emails & prior_emails)
+                added = sorted(current_emails - prior_emails)
+                removed = sorted(prior_emails - current_emails)
+                if overlap:
+                    out.append(Finding(
+                        validator=self.name,
+                        rule_id="maintainer_roster_changed",
+                        severity=Severity.MODERATE,
+                        package_name=pkg.name,
+                        package_version=pkg.version,
+                        message=(
+                            f"{pkg.key}: maintainer roster changed since {prior_pkg.version}"
+                            f" (+{len(added)} / -{len(removed)}; {len(overlap)} unchanged)"
+                        ),
+                        detail={
+                            "prior_version": prior_pkg.version,
+                            "prior_emails": sorted(prior_emails),
+                            "current_emails": sorted(current_emails),
+                            "overlap": overlap,
+                            "added": added,
+                            "removed": removed,
+                        },
+                    ))
+                else:
+                    out.append(Finding(
+                        validator=self.name,
+                        rule_id="maintainer_changed",
+                        severity=Severity.HIGH,
+                        package_name=pkg.name,
+                        package_version=pkg.version,
+                        message=(
+                            f"{pkg.key}: maintainer roster changed completely since {prior_pkg.version}"
+                            f" ({len(prior_emails)} prior -> {len(current_emails)} current)"
+                        ),
+                        detail={
+                            "prior_version": prior_pkg.version,
+                            "prior_emails": sorted(prior_emails),
+                            "current_emails": sorted(current_emails),
+                            "overlap": overlap,
+                            "added": added,
+                            "removed": removed,
+                        },
+                    ))
         return out
 
 
@@ -131,7 +167,12 @@ def _has_repo_url(info: dict[str, Any]) -> bool:
     return "github.com" in home or "gitlab.com" in home or "bitbucket.org" in home
 
 
-def _email_from(meta: dict[str, Any]) -> str | None:
+def _emails_from(meta: dict[str, Any]) -> frozenset[str]:
     info = meta.get("info") or {}
-    email = (info.get("author_email") or info.get("maintainer_email") or "").strip().lower()
-    return email or None
+    raw_values = [str(info.get("author_email") or ""), str(info.get("maintainer_email") or "")]
+    parsed = {
+        email.strip().lower()
+        for _name, email in getaddresses(raw_values)
+        if email and "@" in email
+    }
+    return frozenset(parsed)

@@ -1,7 +1,7 @@
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
-from typing import Protocol, runtime_checkable
 
 
 class Severity(StrEnum):
@@ -85,27 +85,35 @@ class PackageRef:
         return f"{self.name}@{self.version}"
 
 
-@runtime_checkable
-class LockfileValidator(Protocol):
+class LockfileValidator(ABC):
     name: str
     rules_version: str
     rules: tuple[RuleSpec, ...]
 
+    def non_cacheable_rule_ids(self) -> frozenset[str]:
+        return frozenset()
+
+    def lockfile_cache_context_hash(self) -> str | None:
+        return None
+
+    @abstractmethod
     async def validate(
         self,
         resolved: tuple[PackageRef, ...],
         prior: dict[str, PackageRef],
-    ) -> tuple[Finding, ...]: ...
+    ) -> tuple[Finding, ...]:
+        raise NotImplementedError
 
 
-@runtime_checkable
-class ArtifactValidator(Protocol):
+class ArtifactValidator(ABC):
     name: str
     rules_version: str
     rules: tuple[RuleSpec, ...]
 
+    @abstractmethod
     async def validate(
         self,
         package: PackageRef,
         artifact_path: Path,
-    ) -> tuple[Finding, ...]: ...
+    ) -> tuple[Finding, ...]:
+        raise NotImplementedError

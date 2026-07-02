@@ -8,7 +8,9 @@ from poetry_guard_plugin.config import GuardConfig
 from poetry_guard_plugin.exceptions import LockValidationError
 from poetry_guard_plugin.pipeline import Pipeline, raise_for_lock
 from poetry_guard_plugin.validators.base import (
+    ArtifactValidator,
     Finding,
+    LockfileValidator,
     PackageRef,
     RuleSpec,
     Severity,
@@ -16,7 +18,7 @@ from poetry_guard_plugin.validators.base import (
 
 
 @dataclass
-class StubLockfileValidator:
+class StubLockfileValidator(LockfileValidator):
     findings_for: dict[str, tuple[Finding, ...]]
     name: str = "stub"
     rules_version: str = "1"
@@ -44,7 +46,7 @@ class StubLockfileValidator:
 
 
 @dataclass
-class StubArtifactValidator:
+class StubArtifactValidator(ArtifactValidator):
     findings_for: dict[str, tuple[Finding, ...]]
     name: str = "stub-art"
     rules_version: str = "1"
@@ -59,7 +61,7 @@ class StubArtifactValidator:
 
 
 @dataclass
-class RaisingLockfileValidator:
+class RaisingLockfileValidator(LockfileValidator):
     name: str = "raising"
     rules_version: str = "1"
     rules: tuple[RuleSpec, ...] = ()
@@ -131,7 +133,7 @@ async def test_non_cacheable_lockfile_rules_are_refreshed_without_duplicate_stab
         message="uploaded 1.1 days ago",
     )
     cache = VerdictCache(tmp_path)
-    cache.put_lockfile("metadata", "2", pkg, (stable, old_dynamic))
+    cache.put_lockfile("metadata", "3", pkg, (stable, old_dynamic), cache_context_hash="ctx-3")
     validator = StubLockfileValidator(
         findings_for={pkg.key: (stable, fresh_dynamic)},
         name="metadata",

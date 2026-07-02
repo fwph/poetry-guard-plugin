@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from poetry_guard_plugin.config import GuardConfig
-from poetry_guard_plugin.validators.base import Finding, PackageRef, RuleSpec, Severity
+from poetry_guard_plugin.validators.base import ArtifactValidator, Finding, PackageRef, RuleSpec, Severity
 
 
 def _rules() -> tuple[RuleSpec, ...]:
@@ -37,7 +37,7 @@ _RULES = _rules()
 
 
 @dataclass
-class GuardDogValidator:
+class GuardDogValidator(ArtifactValidator):
     config: GuardConfig
     name: str = "guarddog"
     rules_version: str = "v3.0"

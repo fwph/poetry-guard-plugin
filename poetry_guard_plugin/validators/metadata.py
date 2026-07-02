@@ -10,7 +10,7 @@ import aiohttp
 
 from poetry_guard_plugin.config import GuardConfig
 from poetry_guard_plugin.http_cache import fetch_json
-from poetry_guard_plugin.validators.base import Finding, PackageRef, RuleSpec, Severity
+from poetry_guard_plugin.validators.base import Finding, LockfileValidator, PackageRef, RuleSpec, Severity
 
 _RULES = (
     RuleSpec(
@@ -39,7 +39,7 @@ _PYPI_JSON = "https://pypi.org/pypi/{name}/{version}/json"
 
 
 @dataclass
-class MetadataValidator:
+class MetadataValidator(LockfileValidator):
     config: GuardConfig
     name: str = "metadata"
     rules_version: str = "3"
@@ -52,7 +52,7 @@ class MetadataValidator:
 
     def lockfile_cache_context_hash(self) -> str:
         payload = json.dumps({"min_age_days": self.config.min_age_days}, sort_keys=True, separators=(",", ":"))
-        return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
     async def validate(
         self,

@@ -3,7 +3,7 @@ from dataclasses import dataclass
 import aiohttp
 
 from poetry_guard_plugin.config import GuardConfig
-from poetry_guard_plugin.validators.base import Finding, PackageRef, RuleSpec, Severity
+from poetry_guard_plugin.validators.base import Finding, LockfileValidator, PackageRef, RuleSpec, Severity
 
 _RULES = (
     RuleSpec(
@@ -20,7 +20,7 @@ _RULES = (
 
 
 @dataclass
-class OsvValidator:
+class OsvValidator(LockfileValidator):
     config: GuardConfig
     name: str = "osv"
     rules_version: str = "1"

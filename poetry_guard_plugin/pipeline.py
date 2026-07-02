@@ -75,8 +75,8 @@ class Pipeline:
     ) -> tuple[Finding, ...]:
         cached: list[Finding] = []
         to_run: list[PackageRef] = []
-        skip_rule_ids = _lockfile_non_cacheable_rule_ids(validator)
-        cache_context_hash = _lockfile_cache_context_hash(validator)
+        skip_rule_ids = validator.non_cacheable_rule_ids()
+        cache_context_hash = validator.lockfile_cache_context_hash()
         for pkg in resolved:
             hit = self.cache.get_lockfile(
                 validator.name,
@@ -218,21 +218,6 @@ def _dedupe_findings(findings: tuple[Finding, ...]) -> tuple[Finding, ...]:
         seen.add(key)
         deduped.append(finding)
     return tuple(deduped)
-
-
-def _lockfile_non_cacheable_rule_ids(validator: LockfileValidator) -> frozenset[str]:
-    getter = getattr(validator, "non_cacheable_rule_ids", None)
-    if getter is None:
-        return frozenset()
-    return frozenset(getter())
-
-
-def _lockfile_cache_context_hash(validator: LockfileValidator) -> str | None:
-    getter = getattr(validator, "lockfile_cache_context_hash", None)
-    if getter is None:
-        return None
-    value = str(getter()).strip()
-    return value or None
 
 
 def _load_lockfile_validators(config: GuardConfig) -> tuple[LockfileValidator, ...]:

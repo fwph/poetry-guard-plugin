@@ -40,7 +40,7 @@ _PYPI_JSON = "https://pypi.org/pypi/{name}/{version}/json"
 class MetadataValidator:
     config: GuardConfig
     name: str = "metadata"
-    rules_version: str = "1"
+    rules_version: str = "2"
     rules: tuple[RuleSpec, ...] = _RULES
 
     async def validate(

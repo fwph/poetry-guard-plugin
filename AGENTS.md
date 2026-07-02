@@ -50,6 +50,9 @@ subprocess, network request, or Poetry adapter failed.
 - **Type annotations**: required on all functions and class attributes; mypy enforces this
 - **`import regex as re`**: always use the `regex` library aliased as `re`; never `import re`
 - **No `assert` outside tests**: use explicit `if`/`raise` for runtime invariants
+- **Bump validator cache versions on semantic changes**: whenever a validator's logic, rule IDs, severity mapping, or
+  emitted messages/details change in a way that should invalidate cached findings, increment that validator's
+  `rules_version`
 
 ## Project Layout
 

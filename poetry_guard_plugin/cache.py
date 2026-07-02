@@ -39,8 +39,10 @@ class VerdictCache:
         validator: str,
         rules_version: str,
         package: PackageRef,
+        *,
+        skip_rule_ids: frozenset[str] = frozenset(),
     ) -> tuple[Finding, ...] | None:
-        return self._read(self._lockfile_path(validator, rules_version, package))
+        return self._read(self._lockfile_path(validator, rules_version, package), skip_rule_ids=skip_rule_ids)
 
     def put_lockfile(
         self,
@@ -52,11 +54,14 @@ class VerdictCache:
         self._write(self._lockfile_path(validator, rules_version, package), findings)
 
     @staticmethod
-    def _read(path: Path) -> tuple[Finding, ...] | None:
+    def _read(path: Path, *, skip_rule_ids: frozenset[str] = frozenset()) -> tuple[Finding, ...] | None:
         if not path.is_file():
             return None
         data = json.loads(path.read_text(encoding="utf-8"))
-        return tuple(_finding_from_dict(d) for d in data["findings"])
+        findings = tuple(_finding_from_dict(d) for d in data["findings"])
+        if not skip_rule_ids:
+            return findings
+        return tuple(f for f in findings if f.rule_id not in skip_rule_ids)
 
     @staticmethod
     def _write(path: Path, findings: tuple[Finding, ...]) -> None:

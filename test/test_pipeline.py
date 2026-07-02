@@ -92,6 +92,54 @@ async def test_lockfile_findings_cached_and_replayed(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_non_cacheable_lockfile_rules_are_refreshed_without_duplicate_stable_findings(
+    tmp_path: Path,
+) -> None:
+    pkg = PackageRef("a", "1")
+    stable = Finding(
+        validator="metadata",
+        rule_id="repo_url_missing",
+        severity=Severity.LOW,
+        package_name="a",
+        package_version="1",
+        message="repo missing",
+    )
+    old_dynamic = Finding(
+        validator="metadata",
+        rule_id="too_new",
+        severity=Severity.MODERATE,
+        package_name="a",
+        package_version="1",
+        message="uploaded 0.1 days ago",
+    )
+    fresh_dynamic = Finding(
+        validator="metadata",
+        rule_id="too_new",
+        severity=Severity.MODERATE,
+        package_name="a",
+        package_version="1",
+        message="uploaded 1.1 days ago",
+    )
+    cache = VerdictCache(tmp_path)
+    cache.put_lockfile("metadata", "2", pkg, (stable, old_dynamic))
+    validator = StubLockfileValidator(
+        findings_for={pkg.key: (stable, fresh_dynamic)},
+        name="metadata",
+        rules_version="2",
+    )
+    pipeline = Pipeline(
+        config=GuardConfig(),
+        cache=cache,
+        lockfile_validators=(validator,),
+    )
+
+    findings = await pipeline.run_lockfile([pkg], {})
+
+    assert [f.rule_id for f in findings] == ["repo_url_missing", "too_new"]
+    assert [f.message for f in findings if f.rule_id == "too_new"] == ["uploaded 1.1 days ago"]
+
+
+@pytest.mark.asyncio
 async def test_artifact_findings_cached_by_sha(tmp_path: Path) -> None:
     pkg = PackageRef("a", "1")
     artifact = tmp_path / "art.tar.gz"

@@ -44,6 +44,19 @@ def test_empty_findings_cached(tmp_path: Path) -> None:
     assert hit == ()
 
 
+def test_lockfile_read_can_skip_selected_rule_ids(tmp_path: Path) -> None:
+    cache = VerdictCache(tmp_path)
+    pkg = PackageRef(name="pkg", version="1.0")
+    findings = (
+        _finding(rule="too_new", severity=Severity.MODERATE),
+        _finding(rule="repo_url_missing", severity=Severity.LOW),
+    )
+    cache.put_lockfile("metadata", "2", pkg, findings)
+    hit = cache.get_lockfile("metadata", "2", pkg, skip_rule_ids=frozenset({"too_new"}))
+    assert hit is not None
+    assert [f.rule_id for f in hit] == ["repo_url_missing"]
+
+
 def test_sha256_of_file(tmp_path: Path) -> None:
     p = tmp_path / "f.bin"
     p.write_bytes(b"hello")

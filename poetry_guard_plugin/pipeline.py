@@ -1,4 +1,5 @@
 import asyncio
+import json
 import sys
 from dataclasses import dataclass, field
 from importlib.metadata import entry_points
@@ -17,6 +18,9 @@ from poetry_guard_plugin.validators.base import (
 )
 
 HARD_FAIL_MIN = Severity.HIGH
+NON_CACHEABLE_LOCKFILE_RULES: dict[str, frozenset[str]] = {
+    "metadata": frozenset({"too_new"}),
+}
 
 
 @dataclass
@@ -74,11 +78,17 @@ class Pipeline:
     ) -> tuple[Finding, ...]:
         cached: list[Finding] = []
         to_run: list[PackageRef] = []
+        skip_rule_ids = NON_CACHEABLE_LOCKFILE_RULES.get(validator.name, frozenset())
         for pkg in resolved:
-            hit = self.cache.get_lockfile(validator.name, validator.rules_version, pkg)
+            hit = self.cache.get_lockfile(
+                validator.name,
+                validator.rules_version,
+                pkg,
+                skip_rule_ids=skip_rule_ids,
+            )
             if hit is not None:
                 cached.extend(hit)
-            else:
+            if hit is None or skip_rule_ids:
                 to_run.append(pkg)
         if not to_run:
             return tuple(cached)
@@ -93,7 +103,7 @@ class Pipeline:
                 pkg,
                 tuple(by_pkg.get(pkg.key, [])),
             )
-        return tuple(cached) + fresh
+        return _dedupe_findings(tuple(cached) + fresh)
 
     async def run_artifact(self, packages: Sequence[PackageRef]) -> tuple[Finding, ...]:
         if not self.config.enabled or not self.artifact_validators or self.fetch_artifact is None:
@@ -190,6 +200,22 @@ async def _gather_findings(
     for result in results:
         findings.extend(result)
     return tuple(findings)
+
+
+def _dedupe_findings(findings: tuple[Finding, ...]) -> tuple[Finding, ...]:
+    seen: set[str] = set()
+    deduped: list[Finding] = []
+    for finding in findings:
+        detail = json.dumps(finding.detail, sort_keys=True, separators=(",", ":"))
+        key = (
+            f"{finding.validator}\0{finding.rule_id}\0{finding.severity.value}\0"
+            f"{finding.package_name}\0{finding.package_version}\0{finding.message}\0{detail}"
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(finding)
+    return tuple(deduped)
 
 
 def _load_lockfile_validators(config: GuardConfig) -> tuple[LockfileValidator, ...]:

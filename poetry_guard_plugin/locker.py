@@ -27,11 +27,13 @@ class GuardLocker(Locker):
         config: GuardConfig,
         pipeline: Pipeline,
         report: Callable[[str], None] = print,
+        verbose_report: Callable[[str], None] = print,
     ) -> None:
         super().__init__(lock, pyproject_data)
         self._guard_config = config
         self._guard_pipeline = pipeline
         self._guard_report = report
+        self._guard_verbose_report = verbose_report
 
     @classmethod
     def wrap(
@@ -40,6 +42,7 @@ class GuardLocker(Locker):
         config: GuardConfig,
         pipeline: Pipeline,
         report: Callable[[str], None] = print,
+        verbose_report: Callable[[str], None] = print,
     ) -> "GuardLocker":
         return cls(
             lock=existing.lock,
@@ -47,6 +50,7 @@ class GuardLocker(Locker):
             config=config,
             pipeline=pipeline,
             report=report,
+            verbose_report=verbose_report,
         )
 
     def set_lock_data(
@@ -66,12 +70,22 @@ class GuardLocker(Locker):
             self._guard_report("poetry-guard: no new or upgraded packages")
             return
 
-        self._guard_report(f"poetry-guard: validating {len(new_or_upgraded)} new/upgraded package(s)")
+        check_count = self._guard_pipeline.lockfile_check_count(new_or_upgraded)
+        validator_names = ", ".join(self._guard_pipeline.lockfile_validator_names())
+        self._guard_verbose_report(
+            "poetry-guard: validating "
+            f"{len(new_or_upgraded)} new/upgraded package(s) across {check_count} check(s)"
+            f" using {validator_names}"
+        )
 
         lock_findings = asyncio.run(self._guard_pipeline.run_lockfile(new_or_upgraded, prior))
         result = self._guard_pipeline.aggregate(lock_findings)
         for f in result.accepted:
             self._guard_report(f"poetry-guard: accepted [{f.severity}] {f.key} :: {f.validator}/{f.rule_id}")
+        self._guard_report(
+            f"poetry-guard: completed {check_count} check(s) on {len(new_or_upgraded)} package(s); "
+            f"{len(result.findings)} finding(s), {len(result.blocked)} blocking"
+        )
         raise_for_lock(result)
 
     def _prior_lock_map(self) -> dict[str, PackageRef]:

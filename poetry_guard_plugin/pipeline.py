@@ -60,6 +60,12 @@ class Pipeline:
             self._run_lockfile_one(v, tuple(resolved), prior) for v in self.lockfile_validators
         )
 
+    def lockfile_check_count(self, packages: Sequence[PackageRef]) -> int:
+        return len(packages) * len(self.lockfile_validators)
+
+    def lockfile_validator_names(self) -> tuple[str, ...]:
+        return tuple(v.name for v in self.lockfile_validators)
+
     async def _run_lockfile_one(
         self,
         validator: LockfileValidator,
@@ -98,6 +104,12 @@ class Pipeline:
         if not self.config.enabled or not self.artifact_validators:
             return ()
         return await self._run_artifact_one_at_path(pkg, path)
+
+    def artifact_check_count(self) -> int:
+        return len(self.artifact_validators)
+
+    def artifact_validator_names(self) -> tuple[str, ...]:
+        return tuple(v.name for v in self.artifact_validators)
 
     async def _run_artifact_one(self, pkg: PackageRef) -> tuple[Finding, ...]:
         if self.fetch_artifact is None:

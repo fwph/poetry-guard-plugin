@@ -25,6 +25,7 @@ class GuardExecutor(Executor):
     _guard_config: GuardConfig
     _guard_pipeline: Pipeline
     _guard_report: Callable[[str], None]
+    _guard_verbose_report: Callable[[str], None]
     _validated_archives: set[str]
 
     def attach(
@@ -32,10 +33,12 @@ class GuardExecutor(Executor):
         config: GuardConfig,
         pipeline: Pipeline,
         report: Callable[[str], None],
+        verbose_report: Callable[[str], None],
     ) -> None:
         self._guard_config = config
         self._guard_pipeline = pipeline
         self._guard_report = report
+        self._guard_verbose_report = verbose_report
         self._validated_archives = set()
 
     def _install(self, operation: Install | Update) -> int:
@@ -75,8 +78,17 @@ class GuardExecutor(Executor):
 
     def _validate_archive(self, operation: Install | Update, archive: Path) -> None:
         pkg = PackageRef(name=operation.package.name, version=str(operation.package.version))
+        check_count = self._guard_pipeline.artifact_check_count()
+        validator_names = ", ".join(self._guard_pipeline.artifact_validator_names())
+        self._guard_verbose_report(
+            f"poetry-guard: validating artifact for {pkg.key} across {check_count} check(s) using {validator_names}"
+        )
         artifact_findings = asyncio.run(self._guard_pipeline.run_artifact_at_path(pkg, archive))
         result = self._guard_pipeline.aggregate(artifact_findings)
         for f in result.accepted:
             self._guard_report(f"poetry-guard: accepted [{f.severity}] {f.key} :: {f.validator}/{f.rule_id}")
+        self._guard_verbose_report(
+            f"poetry-guard: completed {check_count} artifact check(s) for {pkg.key}; "
+            f"{len(result.findings)} finding(s), {len(result.blocked)} blocking"
+        )
         raise_for_artifact(result)

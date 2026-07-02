@@ -170,3 +170,30 @@ def test_aggregate_low_severity_does_not_block(tmp_path: Path) -> None:
     result = pipeline.aggregate(findings)
     assert result.blocked == ()
     assert result.accepted == findings
+
+
+def test_lockfile_check_count_scales_with_packages_and_validators(tmp_path: Path) -> None:
+    cache = VerdictCache(tmp_path)
+    pipeline = Pipeline(
+        config=GuardConfig(),
+        cache=cache,
+        lockfile_validators=(
+            StubLockfileValidator(findings_for={}),
+            StubLockfileValidator(findings_for={}, name="stub-2"),
+        ),
+    )
+    packages = (PackageRef("a", "1"), PackageRef("b", "2"), PackageRef("c", "3"))
+    assert pipeline.lockfile_check_count(packages) == 6
+
+
+def test_artifact_check_count_tracks_validator_count(tmp_path: Path) -> None:
+    cache = VerdictCache(tmp_path)
+    pipeline = Pipeline(
+        config=GuardConfig(),
+        cache=cache,
+        artifact_validators=(
+            StubArtifactValidator(findings_for={}),
+            StubArtifactValidator(findings_for={}, name="stub-art-2"),
+        ),
+    )
+    assert pipeline.artifact_check_count() == 2

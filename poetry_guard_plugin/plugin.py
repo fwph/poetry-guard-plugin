@@ -62,6 +62,11 @@ class GuardApplicationPlugin(ApplicationPlugin):
         config = self._apply_cli_overrides(event, config)
         io = getattr(event, "io", None)
         report: Callable[[str], None] = io.write_line if io is not None else (lambda _msg: None)
+        verbose_report: Callable[[str], None]
+        if io is not None and io.is_verbose():
+            verbose_report = io.write_line
+        else:
+            verbose_report = lambda _msg: None
         if not config.enabled:
             report("<comment>poetry-guard: disabled, skipping validation</>")
             return
@@ -84,6 +89,7 @@ class GuardApplicationPlugin(ApplicationPlugin):
             config=config,
             pipeline=pipeline,
             report=report,
+            verbose_report=verbose_report,
         )
         cmd.poetry.set_locker(guard_locker)
         cmd.installer.set_locker(guard_locker)
@@ -91,7 +97,7 @@ class GuardApplicationPlugin(ApplicationPlugin):
         executor = cmd.installer.executor
         executor.__class__ = GuardExecutor
         guard_executor: GuardExecutor = executor  # type: ignore[assignment]
-        guard_executor.attach(config=config, pipeline=pipeline, report=report)
+        guard_executor.attach(config=config, pipeline=pipeline, report=report, verbose_report=verbose_report)
 
     def _on_error(
         self,

@@ -4,6 +4,9 @@ version = "0.1.0"
 description = "Plugin for Poetry that wraps dependency installs/updates with a validation process to check for potential supply chain attacks"
 authors = ["Fritz Heckel <fwph@fwph.net>"]
 license = "MIT"
+readme = "README.md"
+homepage = "https://github.com/fwph/poetry-guard-plugin"
+repository = "https://github.com/fwph/poetry-guard-plugin"
 packages = [{include = "poetry_guard_plugin"}]
 
 [tool.poetry.dependencies]

@@ -16,14 +16,45 @@ class VerdictCache:
             return hashlib.file_digest(fh, "sha256").hexdigest()
 
     def _artifact_path(self, validator: str, rules_version: str, sha256: str) -> Path:
-        return self._root / "artifact" / validator / rules_version / f"{sha256}.json"
+        return self._artifact_path_with_context(validator, rules_version, sha256, None)
+
+    def _artifact_path_with_context(
+        self,
+        validator: str,
+        rules_version: str,
+        sha256: str,
+        cache_context_hash: str | None,
+    ) -> Path:
+        base = self._root / "artifact" / validator / rules_version
+        if cache_context_hash:
+            base = base / cache_context_hash
+        return base / f"{sha256}.json"
 
     def _lockfile_path(self, validator: str, rules_version: str, package: PackageRef) -> Path:
-        safe_name = package.name.replace("/", "_")
-        return self._root / "lockfile" / validator / rules_version / f"{safe_name}@{package.version}.json"
+        return self._lockfile_path_with_context(validator, rules_version, package, None)
 
-    def get_artifact(self, validator: str, rules_version: str, sha256: str) -> tuple[Finding, ...] | None:
-        return self._read(self._artifact_path(validator, rules_version, sha256))
+    def _lockfile_path_with_context(
+        self,
+        validator: str,
+        rules_version: str,
+        package: PackageRef,
+        cache_context_hash: str | None,
+    ) -> Path:
+        safe_name = package.name.replace("/", "_")
+        base = self._root / "lockfile" / validator / rules_version
+        if cache_context_hash:
+            base = base / cache_context_hash
+        return base / f"{safe_name}@{package.version}.json"
+
+    def get_artifact(
+        self,
+        validator: str,
+        rules_version: str,
+        sha256: str,
+        *,
+        cache_context_hash: str | None = None,
+    ) -> tuple[Finding, ...] | None:
+        return self._read(self._artifact_path_with_context(validator, rules_version, sha256, cache_context_hash))
 
     def put_artifact(
         self,
@@ -31,16 +62,24 @@ class VerdictCache:
         rules_version: str,
         sha256: str,
         findings: tuple[Finding, ...],
+        *,
+        cache_context_hash: str | None = None,
     ) -> None:
-        self._write(self._artifact_path(validator, rules_version, sha256), findings)
+        self._write(self._artifact_path_with_context(validator, rules_version, sha256, cache_context_hash), findings)
 
     def get_lockfile(
         self,
         validator: str,
         rules_version: str,
         package: PackageRef,
+        *,
+        cache_context_hash: str | None = None,
+        skip_rule_ids: frozenset[str] = frozenset(),
     ) -> tuple[Finding, ...] | None:
-        return self._read(self._lockfile_path(validator, rules_version, package))
+        return self._read(
+            self._lockfile_path_with_context(validator, rules_version, package, cache_context_hash),
+            skip_rule_ids=skip_rule_ids,
+        )
 
     def put_lockfile(
         self,
@@ -48,15 +87,20 @@ class VerdictCache:
         rules_version: str,
         package: PackageRef,
         findings: tuple[Finding, ...],
+        *,
+        cache_context_hash: str | None = None,
     ) -> None:
-        self._write(self._lockfile_path(validator, rules_version, package), findings)
+        self._write(self._lockfile_path_with_context(validator, rules_version, package, cache_context_hash), findings)
 
     @staticmethod
-    def _read(path: Path) -> tuple[Finding, ...] | None:
+    def _read(path: Path, *, skip_rule_ids: frozenset[str] = frozenset()) -> tuple[Finding, ...] | None:
         if not path.is_file():
             return None
         data = json.loads(path.read_text(encoding="utf-8"))
-        return tuple(_finding_from_dict(d) for d in data["findings"])
+        findings = tuple(_finding_from_dict(d) for d in data["findings"])
+        if not skip_rule_ids:
+            return findings
+        return tuple(f for f in findings if f.rule_id not in skip_rule_ids)
 
     @staticmethod
     def _write(path: Path, findings: tuple[Finding, ...]) -> None:

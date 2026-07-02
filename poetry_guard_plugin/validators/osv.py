@@ -1,9 +1,11 @@
+import hashlib
+import json
 from dataclasses import dataclass
 
 import aiohttp
 
 from poetry_guard_plugin.config import GuardConfig
-from poetry_guard_plugin.validators.base import Finding, PackageRef, RuleSpec, Severity
+from poetry_guard_plugin.validators.base import Finding, LockfileValidator, PackageRef, RuleSpec, Severity
 
 _RULES = (
     RuleSpec(
@@ -20,11 +22,22 @@ _RULES = (
 
 
 @dataclass
-class OsvValidator:
+class OsvValidator(LockfileValidator):
     config: GuardConfig
     name: str = "osv"
     rules_version: str = "1"
     rules: tuple[RuleSpec, ...] = _RULES
+
+    def lockfile_cache_context_hash(self) -> str:
+        payload = json.dumps(
+            {
+                "osv_severity": self.config.osv_severity.value,
+                "osv_url": self.config.osv_url,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
     async def validate(
         self,

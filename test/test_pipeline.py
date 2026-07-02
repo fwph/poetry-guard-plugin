@@ -8,7 +8,9 @@ from poetry_guard_plugin.config import GuardConfig
 from poetry_guard_plugin.exceptions import LockValidationError
 from poetry_guard_plugin.pipeline import Pipeline, raise_for_lock
 from poetry_guard_plugin.validators.base import (
+    ArtifactValidator,
     Finding,
+    LockfileValidator,
     PackageRef,
     RuleSpec,
     Severity,
@@ -16,40 +18,56 @@ from poetry_guard_plugin.validators.base import (
 
 
 @dataclass
-class StubLockfileValidator:
+class StubLockfileValidator(LockfileValidator):
     findings_for: dict[str, tuple[Finding, ...]]
     name: str = "stub"
     rules_version: str = "1"
     rules: tuple[RuleSpec, ...] = ()
+    volatile_rule_ids: frozenset[str] = frozenset()
+    cache_context_hash: str | None = None
+    calls: int = 0
 
     async def validate(
         self,
         resolved: tuple[PackageRef, ...],
         prior: dict[str, PackageRef],
     ) -> tuple[Finding, ...]:
+        self.calls += 1
         out: list[Finding] = []
         for p in resolved:
             out.extend(self.findings_for.get(p.key, ()))
         return tuple(out)
 
+    def non_cacheable_rule_ids(self) -> frozenset[str]:
+        return self.volatile_rule_ids
+
+    def lockfile_cache_context_hash(self) -> str | None:
+        return self.cache_context_hash
+
 
 @dataclass
-class StubArtifactValidator:
+class StubArtifactValidator(ArtifactValidator):
     findings_for: dict[str, tuple[Finding, ...]]
     name: str = "stub-art"
     rules_version: str = "1"
     rules: tuple[RuleSpec, ...] = ()
+    cache_context_hash: str | None = None
+    calls: int = 0
 
     async def validate(
         self,
         package: PackageRef,
         artifact_path: Path,
     ) -> tuple[Finding, ...]:
+        self.calls += 1
         return self.findings_for.get(package.key, ())
+
+    def artifact_cache_context_hash(self) -> str | None:
+        return self.cache_context_hash
 
 
 @dataclass
-class RaisingLockfileValidator:
+class RaisingLockfileValidator(LockfileValidator):
     name: str = "raising"
     rules_version: str = "1"
     rules: tuple[RuleSpec, ...] = ()
@@ -92,6 +110,161 @@ async def test_lockfile_findings_cached_and_replayed(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_non_cacheable_lockfile_rules_are_refreshed_without_duplicate_stable_findings(
+    tmp_path: Path,
+) -> None:
+    pkg = PackageRef("a", "1")
+    stable = Finding(
+        validator="metadata",
+        rule_id="repo_url_missing",
+        severity=Severity.LOW,
+        package_name="a",
+        package_version="1",
+        message="repo missing",
+    )
+    old_dynamic = Finding(
+        validator="metadata",
+        rule_id="too_new",
+        severity=Severity.MODERATE,
+        package_name="a",
+        package_version="1",
+        message="uploaded 0.1 days ago",
+    )
+    fresh_dynamic = Finding(
+        validator="metadata",
+        rule_id="too_new",
+        severity=Severity.MODERATE,
+        package_name="a",
+        package_version="1",
+        message="uploaded 1.1 days ago",
+    )
+    cache = VerdictCache(tmp_path)
+    cache.put_lockfile("metadata", "3", pkg, (stable, old_dynamic), cache_context_hash="ctx-3")
+    validator = StubLockfileValidator(
+        findings_for={pkg.key: (stable, fresh_dynamic)},
+        name="metadata",
+        rules_version="3",
+        volatile_rule_ids=frozenset({"too_new"}),
+        cache_context_hash="ctx-3",
+    )
+    pipeline = Pipeline(
+        config=GuardConfig(),
+        cache=cache,
+        lockfile_validators=(validator,),
+    )
+
+    findings = await pipeline.run_lockfile([pkg], {})
+
+    assert [f.rule_id for f in findings] == ["repo_url_missing", "too_new"]
+    assert [f.message for f in findings if f.rule_id == "too_new"] == ["uploaded 1.1 days ago"]
+
+
+@pytest.mark.asyncio
+async def test_offline_reuses_cached_stable_findings_without_rerunning_volatile_rules(tmp_path: Path) -> None:
+    pkg = PackageRef("a", "1")
+    stable = Finding(
+        validator="metadata",
+        rule_id="repo_url_missing",
+        severity=Severity.LOW,
+        package_name="a",
+        package_version="1",
+        message="repo missing",
+    )
+    validator = StubLockfileValidator(
+        findings_for={pkg.key: (_f("a", "1", validator="metadata"),)},
+        name="metadata",
+        rules_version="3",
+        volatile_rule_ids=frozenset({"too_new"}),
+        cache_context_hash="ctx-3",
+    )
+    cache = VerdictCache(tmp_path)
+    cache.put_lockfile("metadata", "3", pkg, (stable,), cache_context_hash="ctx-3")
+    pipeline = Pipeline(
+        config=GuardConfig(offline=True),
+        cache=cache,
+        lockfile_validators=(validator,),
+    )
+
+    findings = await pipeline.run_lockfile([pkg], {})
+
+    assert findings == (stable,)
+    assert validator.calls == 0
+    cached = cache.get_lockfile("metadata", "3", pkg, cache_context_hash="ctx-3")
+    assert cached == (stable,)
+
+
+@pytest.mark.asyncio
+async def test_lockfile_cache_is_scoped_by_validator_cache_context(tmp_path: Path) -> None:
+    pkg = PackageRef("a", "1")
+    cached_finding = _f("a", "1", validator="metadata")
+    first_validator = StubLockfileValidator(
+        findings_for={pkg.key: (cached_finding,)},
+        name="metadata",
+        rules_version="3",
+        cache_context_hash="ctx-3",
+    )
+    cache = VerdictCache(tmp_path)
+    pipeline = Pipeline(
+        config=GuardConfig(),
+        cache=cache,
+        lockfile_validators=(first_validator,),
+    )
+    first = await pipeline.run_lockfile([pkg], {})
+    assert first == (cached_finding,)
+
+    second_validator = StubLockfileValidator(
+        findings_for={},
+        name="metadata",
+        rules_version="3",
+        cache_context_hash="ctx-7",
+    )
+    second_pipeline = Pipeline(
+        config=GuardConfig(),
+        cache=cache,
+        lockfile_validators=(second_validator,),
+    )
+
+    second = await second_pipeline.run_lockfile([pkg], {})
+
+    assert second == ()
+    assert second_validator.calls == 1
+    assert cache.get_lockfile("metadata", "3", pkg, cache_context_hash="ctx-3") == (cached_finding,)
+    assert cache.get_lockfile("metadata", "3", pkg, cache_context_hash="ctx-7") == ()
+
+
+@pytest.mark.asyncio
+async def test_disabled_volatile_rule_uses_cache_without_rerun(tmp_path: Path) -> None:
+    pkg = PackageRef("a", "1")
+    finding = Finding(
+        validator="metadata",
+        rule_id="repo_url_missing",
+        severity=Severity.LOW,
+        package_name="a",
+        package_version="1",
+        message="repo missing",
+    )
+    validator = StubLockfileValidator(
+        findings_for={pkg.key: ()},
+        name="metadata",
+        rules_version="3",
+        volatile_rule_ids=frozenset(),
+        cache_context_hash="ctx-0",
+    )
+    cache = VerdictCache(tmp_path)
+    cache.put_lockfile("metadata", "3", pkg, (finding,), cache_context_hash="ctx-0")
+    pipeline = Pipeline(
+        config=GuardConfig(min_age_days=0),
+        cache=cache,
+        lockfile_validators=(validator,),
+    )
+
+    findings = await pipeline.run_lockfile([pkg], {})
+
+    assert findings == (finding,)
+    assert validator.calls == 0
+
+
+@pytest.mark.asyncio
 async def test_artifact_findings_cached_by_sha(tmp_path: Path) -> None:
     pkg = PackageRef("a", "1")
     artifact = tmp_path / "art.tar.gz"
@@ -115,6 +288,56 @@ async def test_artifact_findings_cached_by_sha(tmp_path: Path) -> None:
     b = await pipeline.run_artifact([pkg])
     assert len(a) == 1 == len(b)
     assert calls["n"] == 2  # fetch is called each time, but validator output cached on sha
+
+
+@pytest.mark.asyncio
+async def test_artifact_cache_is_scoped_by_validator_cache_context(tmp_path: Path) -> None:
+    pkg = PackageRef("a", "1")
+    artifact = tmp_path / "art.tar.gz"
+    artifact.write_bytes(b"hello")
+    finding = _f("a", "1", validator="stub-art")
+    first_validator = StubArtifactValidator(
+        findings_for={pkg.key: (finding,)},
+        cache_context_hash="ctx-a",
+    )
+    cache = VerdictCache(tmp_path / "cache")
+    first_pipeline = Pipeline(
+        config=GuardConfig(),
+        cache=cache,
+        artifact_validators=(first_validator,),
+    )
+    first = await first_pipeline.run_artifact_at_path(pkg, artifact)
+    assert first == (finding,)
+
+    second_validator = StubArtifactValidator(
+        findings_for={},
+        cache_context_hash="ctx-b",
+    )
+    second_pipeline = Pipeline(
+        config=GuardConfig(),
+        cache=cache,
+        artifact_validators=(second_validator,),
+    )
+
+    second = await second_pipeline.run_artifact_at_path(pkg, artifact)
+
+    assert second == ()
+    assert second_validator.calls == 1
+
+
+def test_entry_point_load_errors_fail_closed(tmp_path: Path) -> None:
+    class FailingEntryPoint:
+        name = "broken"
+
+        @staticmethod
+        def load() -> object:
+            raise RuntimeError("boom")
+
+    cache = VerdictCache(tmp_path)
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        monkeypatch.setattr("poetry_guard_plugin.pipeline.entry_points", lambda group: (FailingEntryPoint(),))
+        with pytest.raises(RuntimeError, match="failed to load validator 'broken'"):
+            Pipeline.from_entry_points(config=GuardConfig(), cache=cache, fetch_artifact=None)
 
 
 @pytest.mark.asyncio

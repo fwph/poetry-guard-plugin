@@ -25,3 +25,7 @@ class LockValidationError(ValidationError):
 
 class ArtifactValidationError(ValidationError):
     pass
+
+
+class ArtifactResolutionError(PoetryGuardError):
+    pass

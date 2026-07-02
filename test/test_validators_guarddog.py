@@ -147,3 +147,10 @@ async def test_risk_threshold_filters_lower_scores(tmp_path: Path) -> None:
         v = GuardDogValidator(config=GuardConfig())
         out = await v.validate(PackageRef("p", "1"), artifact)
     assert out == ()
+
+
+def test_cache_context_changes_with_risk_threshold() -> None:
+    base = GuardDogValidator(config=GuardConfig(guarddog_risk_threshold=7))
+    changed = GuardDogValidator(config=GuardConfig(guarddog_risk_threshold=3))
+
+    assert base.artifact_cache_context_hash() != changed.artifact_cache_context_hash()

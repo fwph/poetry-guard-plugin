@@ -1,5 +1,5 @@
 import asyncio
-import sys
+import json
 from dataclasses import dataclass, field
 from importlib.metadata import entry_points
 from pathlib import Path
@@ -74,11 +74,21 @@ class Pipeline:
     ) -> tuple[Finding, ...]:
         cached: list[Finding] = []
         to_run: list[PackageRef] = []
+        skip_rule_ids = validator.non_cacheable_rule_ids()
+        cache_context_hash = validator.lockfile_cache_context_hash()
         for pkg in resolved:
-            hit = self.cache.get_lockfile(validator.name, validator.rules_version, pkg)
+            hit = self.cache.get_lockfile(
+                validator.name,
+                validator.rules_version,
+                pkg,
+                cache_context_hash=cache_context_hash,
+                skip_rule_ids=skip_rule_ids,
+            )
             if hit is not None:
                 cached.extend(hit)
-            else:
+            if self.config.offline and skip_rule_ids:
+                continue
+            if hit is None or skip_rule_ids:
                 to_run.append(pkg)
         if not to_run:
             return tuple(cached)
@@ -92,8 +102,9 @@ class Pipeline:
                 validator.rules_version,
                 pkg,
                 tuple(by_pkg.get(pkg.key, [])),
+                cache_context_hash=cache_context_hash,
             )
-        return tuple(cached) + fresh
+        return _dedupe_findings(tuple(cached) + fresh)
 
     async def run_artifact(self, packages: Sequence[PackageRef]) -> tuple[Finding, ...]:
         if not self.config.enabled or not self.artifact_validators or self.fetch_artifact is None:
@@ -136,11 +147,16 @@ class Pipeline:
         path: Path,
         sha: str,
     ) -> tuple[Finding, ...]:
-        hit = self.cache.get_artifact(validator.name, validator.rules_version, sha)
+        cache_context_hash = validator.artifact_cache_context_hash()
+        hit = self.cache.get_artifact(
+            validator.name, validator.rules_version, sha, cache_context_hash=cache_context_hash
+        )
         if hit is not None:
             return hit
         fresh = await validator.validate(pkg, path)
-        self.cache.put_artifact(validator.name, validator.rules_version, sha, fresh)
+        self.cache.put_artifact(
+            validator.name, validator.rules_version, sha, fresh, cache_context_hash=cache_context_hash
+        )
         return fresh
 
     def aggregate(self, findings: tuple[Finding, ...]) -> PipelineResult:
@@ -192,6 +208,22 @@ async def _gather_findings(
     return tuple(findings)
 
 
+def _dedupe_findings(findings: tuple[Finding, ...]) -> tuple[Finding, ...]:
+    seen: set[str] = set()
+    deduped: list[Finding] = []
+    for finding in findings:
+        detail = json.dumps(finding.detail, sort_keys=True, separators=(",", ":"))
+        key = (
+            f"{finding.validator}\0{finding.rule_id}\0{finding.severity.value}\0"
+            f"{finding.package_name}\0{finding.package_version}\0{finding.message}\0{detail}"
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(finding)
+    return tuple(deduped)
+
+
 def _load_lockfile_validators(config: GuardConfig) -> tuple[LockfileValidator, ...]:
     return tuple(_load_group("poetry_guard.validators.lockfile", config))
 
@@ -207,5 +239,5 @@ def _load_group(group: str, config: GuardConfig) -> list[Any]:
             cls = ep.load()
             out.append(cls(config=config))
         except Exception as e:
-            print(f"poetry-guard: WARNING: failed to load validator {ep.name!r}: {e}", file=sys.stderr)
+            raise RuntimeError(f"poetry-guard: failed to load validator {ep.name!r}: {e}") from e
     return out

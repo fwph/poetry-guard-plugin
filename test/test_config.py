@@ -11,6 +11,7 @@ def test_defaults_when_section_absent(tmp_path: Path) -> None:
     assert config.enabled is True
     assert config.osv_severity is Severity.MODERATE
     assert config.guarddog_severity is Severity.HIGH
+    assert config.min_age_days == 3
 
 
 def test_loads_full_section(tmp_path: Path) -> None:

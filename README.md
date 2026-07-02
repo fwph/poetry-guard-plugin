@@ -93,6 +93,17 @@ The highest-risk implementation area is the Poetry adapter layer. Poetry's plugi
 support this kind of install-time guard cleanly. Until then, the adapter code should stay small and covered by
 integration tests.
 
+### Poetry Integration Limitations
+
+Poetry Guard currently relies on a few Poetry internals because Poetry does not expose first-class hooks for all of the
+places this plugin needs to validate dependency changes. In particular, the plugin wraps Poetry's locker and swaps the
+installer executor class at runtime so it can validate lockfile writes and downloaded artifacts before Poetry trusts
+them.
+
+Those integration points are intentionally kept narrow, but they are still more sensitive to Poetry implementation
+changes than normal public plugin APIs. If a future Poetry release changes locker or executor internals, Poetry Guard may
+need adapter updates even when the validator pipeline itself is still correct.
+
 ## Development
 
 Install dependencies:

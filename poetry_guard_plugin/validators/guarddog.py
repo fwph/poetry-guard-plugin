@@ -7,6 +7,7 @@ combine capability and threat evidence and provide a severity label.
 """
 
 import asyncio
+import hashlib
 import json
 import shutil
 from dataclasses import dataclass
@@ -14,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from poetry_guard_plugin.config import GuardConfig
-from poetry_guard_plugin.validators.base import Finding, PackageRef, RuleSpec, Severity
+from poetry_guard_plugin.validators.base import ArtifactValidator, Finding, PackageRef, RuleSpec, Severity
 
 
 def _rules() -> tuple[RuleSpec, ...]:
@@ -37,11 +38,19 @@ _RULES = _rules()
 
 
 @dataclass
-class GuardDogValidator:
+class GuardDogValidator(ArtifactValidator):
     config: GuardConfig
     name: str = "guarddog"
     rules_version: str = "v3.0"
     rules: tuple[RuleSpec, ...] = _RULES
+
+    def artifact_cache_context_hash(self) -> str:
+        payload = json.dumps(
+            {"guarddog_risk_threshold": self.config.guarddog_risk_threshold},
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
     async def validate(
         self,

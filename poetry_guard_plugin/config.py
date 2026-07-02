@@ -16,7 +16,7 @@ class GuardConfig:
     osv_severity: Severity = Severity.MODERATE
     guarddog_severity: Severity = Severity.HIGH
     guarddog_risk_threshold: int = 7
-    min_age_days: int = 0
+    min_age_days: int = 3
     accept_risk: frozenset[str] = field(default_factory=frozenset)
     ignore_rules: frozenset[str] = field(default_factory=frozenset)
     cache_dir: Path = field(default_factory=lambda: Path.home() / ".cache" / "poetry-guard")

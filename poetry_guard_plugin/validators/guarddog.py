@@ -100,7 +100,7 @@ class GuardDogValidator:
             rule_id = str(risk.get("threat_rule") or risk.get("name") or "guarddog-risk")
             severity = self._severity_from_label(risk.get("severity")) or aggregate_severity
             message = self._message_for_risk(rule_id, risk)
-            detail = {
+            detail: dict[str, object] = {
                 "risk": risk,
                 "risk_score": risk_score,
             }

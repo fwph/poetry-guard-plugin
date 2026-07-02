@@ -18,9 +18,6 @@ from poetry_guard_plugin.validators.base import (
 )
 
 HARD_FAIL_MIN = Severity.HIGH
-NON_CACHEABLE_LOCKFILE_RULES: dict[str, frozenset[str]] = {
-    "metadata": frozenset({"too_new"}),
-}
 
 
 @dataclass
@@ -78,16 +75,20 @@ class Pipeline:
     ) -> tuple[Finding, ...]:
         cached: list[Finding] = []
         to_run: list[PackageRef] = []
-        skip_rule_ids = NON_CACHEABLE_LOCKFILE_RULES.get(validator.name, frozenset())
+        skip_rule_ids = _lockfile_non_cacheable_rule_ids(validator)
+        cache_context_hash = _lockfile_cache_context_hash(validator)
         for pkg in resolved:
             hit = self.cache.get_lockfile(
                 validator.name,
                 validator.rules_version,
                 pkg,
+                cache_context_hash=cache_context_hash,
                 skip_rule_ids=skip_rule_ids,
             )
             if hit is not None:
                 cached.extend(hit)
+            if self.config.offline and skip_rule_ids:
+                continue
             if hit is None or skip_rule_ids:
                 to_run.append(pkg)
         if not to_run:
@@ -102,6 +103,7 @@ class Pipeline:
                 validator.rules_version,
                 pkg,
                 tuple(by_pkg.get(pkg.key, [])),
+                cache_context_hash=cache_context_hash,
             )
         return _dedupe_findings(tuple(cached) + fresh)
 
@@ -216,6 +218,21 @@ def _dedupe_findings(findings: tuple[Finding, ...]) -> tuple[Finding, ...]:
         seen.add(key)
         deduped.append(finding)
     return tuple(deduped)
+
+
+def _lockfile_non_cacheable_rule_ids(validator: LockfileValidator) -> frozenset[str]:
+    getter = getattr(validator, "non_cacheable_rule_ids", None)
+    if getter is None:
+        return frozenset()
+    return frozenset(getter())
+
+
+def _lockfile_cache_context_hash(validator: LockfileValidator) -> str | None:
+    getter = getattr(validator, "lockfile_cache_context_hash", None)
+    if getter is None:
+        return None
+    value = str(getter()).strip()
+    return value or None
 
 
 def _load_lockfile_validators(config: GuardConfig) -> tuple[LockfileValidator, ...]:

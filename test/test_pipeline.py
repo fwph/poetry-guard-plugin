@@ -21,16 +21,26 @@ class StubLockfileValidator:
     name: str = "stub"
     rules_version: str = "1"
     rules: tuple[RuleSpec, ...] = ()
+    volatile_rule_ids: frozenset[str] = frozenset()
+    cache_context_hash: str | None = None
+    calls: int = 0
 
     async def validate(
         self,
         resolved: tuple[PackageRef, ...],
         prior: dict[str, PackageRef],
     ) -> tuple[Finding, ...]:
+        self.calls += 1
         out: list[Finding] = []
         for p in resolved:
             out.extend(self.findings_for.get(p.key, ()))
         return tuple(out)
+
+    def non_cacheable_rule_ids(self) -> frozenset[str]:
+        return self.volatile_rule_ids
+
+    def lockfile_cache_context_hash(self) -> str | None:
+        return self.cache_context_hash
 
 
 @dataclass
@@ -125,7 +135,9 @@ async def test_non_cacheable_lockfile_rules_are_refreshed_without_duplicate_stab
     validator = StubLockfileValidator(
         findings_for={pkg.key: (stable, fresh_dynamic)},
         name="metadata",
-        rules_version="2",
+        rules_version="3",
+        volatile_rule_ids=frozenset({"too_new"}),
+        cache_context_hash="ctx-3",
     )
     pipeline = Pipeline(
         config=GuardConfig(),
@@ -137,6 +149,111 @@ async def test_non_cacheable_lockfile_rules_are_refreshed_without_duplicate_stab
 
     assert [f.rule_id for f in findings] == ["repo_url_missing", "too_new"]
     assert [f.message for f in findings if f.rule_id == "too_new"] == ["uploaded 1.1 days ago"]
+
+
+@pytest.mark.asyncio
+async def test_offline_reuses_cached_stable_findings_without_rerunning_volatile_rules(tmp_path: Path) -> None:
+    pkg = PackageRef("a", "1")
+    stable = Finding(
+        validator="metadata",
+        rule_id="repo_url_missing",
+        severity=Severity.LOW,
+        package_name="a",
+        package_version="1",
+        message="repo missing",
+    )
+    validator = StubLockfileValidator(
+        findings_for={pkg.key: (_f("a", "1", validator="metadata"),)},
+        name="metadata",
+        rules_version="3",
+        volatile_rule_ids=frozenset({"too_new"}),
+        cache_context_hash="ctx-3",
+    )
+    cache = VerdictCache(tmp_path)
+    cache.put_lockfile("metadata", "3", pkg, (stable,), cache_context_hash="ctx-3")
+    pipeline = Pipeline(
+        config=GuardConfig(offline=True),
+        cache=cache,
+        lockfile_validators=(validator,),
+    )
+
+    findings = await pipeline.run_lockfile([pkg], {})
+
+    assert findings == (stable,)
+    assert validator.calls == 0
+    cached = cache.get_lockfile("metadata", "3", pkg, cache_context_hash="ctx-3")
+    assert cached == (stable,)
+
+
+@pytest.mark.asyncio
+async def test_lockfile_cache_is_scoped_by_validator_cache_context(tmp_path: Path) -> None:
+    pkg = PackageRef("a", "1")
+    cached_finding = _f("a", "1", validator="metadata")
+    first_validator = StubLockfileValidator(
+        findings_for={pkg.key: (cached_finding,)},
+        name="metadata",
+        rules_version="3",
+        cache_context_hash="ctx-3",
+    )
+    cache = VerdictCache(tmp_path)
+    pipeline = Pipeline(
+        config=GuardConfig(),
+        cache=cache,
+        lockfile_validators=(first_validator,),
+    )
+    first = await pipeline.run_lockfile([pkg], {})
+    assert first == (cached_finding,)
+
+    second_validator = StubLockfileValidator(
+        findings_for={},
+        name="metadata",
+        rules_version="3",
+        cache_context_hash="ctx-7",
+    )
+    second_pipeline = Pipeline(
+        config=GuardConfig(),
+        cache=cache,
+        lockfile_validators=(second_validator,),
+    )
+
+    second = await second_pipeline.run_lockfile([pkg], {})
+
+    assert second == ()
+    assert second_validator.calls == 1
+    assert cache.get_lockfile("metadata", "3", pkg, cache_context_hash="ctx-3") == (cached_finding,)
+    assert cache.get_lockfile("metadata", "3", pkg, cache_context_hash="ctx-7") == ()
+
+
+@pytest.mark.asyncio
+async def test_disabled_volatile_rule_uses_cache_without_rerun(tmp_path: Path) -> None:
+    pkg = PackageRef("a", "1")
+    finding = Finding(
+        validator="metadata",
+        rule_id="repo_url_missing",
+        severity=Severity.LOW,
+        package_name="a",
+        package_version="1",
+        message="repo missing",
+    )
+    validator = StubLockfileValidator(
+        findings_for={pkg.key: ()},
+        name="metadata",
+        rules_version="3",
+        volatile_rule_ids=frozenset(),
+        cache_context_hash="ctx-0",
+    )
+    cache = VerdictCache(tmp_path)
+    cache.put_lockfile("metadata", "3", pkg, (finding,), cache_context_hash="ctx-0")
+    pipeline = Pipeline(
+        config=GuardConfig(min_age_days=0),
+        cache=cache,
+        lockfile_validators=(validator,),
+    )
+
+    findings = await pipeline.run_lockfile([pkg], {})
+
+    assert findings == (finding,)
+    assert validator.calls == 0
 
 
 @pytest.mark.asyncio

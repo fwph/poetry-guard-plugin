@@ -51,8 +51,8 @@ def test_lockfile_read_can_skip_selected_rule_ids(tmp_path: Path) -> None:
         _finding(rule="too_new", severity=Severity.MODERATE),
         _finding(rule="repo_url_missing", severity=Severity.LOW),
     )
-    cache.put_lockfile("metadata", "2", pkg, findings)
-    hit = cache.get_lockfile("metadata", "2", pkg, skip_rule_ids=frozenset({"too_new"}))
+    cache.put_lockfile("metadata", "3", pkg, findings)
+    hit = cache.get_lockfile("metadata", "3", pkg, skip_rule_ids=frozenset({"too_new"}))
     assert hit is not None
     assert [f.rule_id for f in hit] == ["repo_url_missing"]
 

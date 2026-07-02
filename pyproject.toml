@@ -1,20 +1,37 @@
-[tool.poetry]
+[project]
 name = "poetry-guard-plugin"
 version = "0.1.0"
 description = "Plugin for Poetry that wraps dependency installs/updates with a validation process to check for potential supply chain attacks"
-authors = ["Fritz Heckel <fwph@fwph.net>"]
-license = "MIT"
 readme = "README.md"
-homepage = "https://github.com/fwph/poetry-guard-plugin"
-repository = "https://github.com/fwph/poetry-guard-plugin"
-packages = [{include = "poetry_guard_plugin"}]
+license = "MIT"
+requires-python = ">=3.12"
+authors = [{ name = "Fritz Heckel", email = "fwph@fwph.net" }]
+dependencies = [
+    "regex",
+    "poetry (>=2.0,<3)",
+    "guarddog (>=3.0,<4.0)",
+    "aiohttp",
+]
+
+[project.urls]
+Homepage = "https://github.com/fwph/poetry-guard-plugin"
+Repository = "https://github.com/fwph/poetry-guard-plugin"
+
+[project.entry-points."poetry.application.plugin"]
+poetry-guard = "poetry_guard_plugin.plugin:GuardApplicationPlugin"
+
+[project.entry-points."poetry_guard.validators.lockfile"]
+osv = "poetry_guard_plugin.validators.osv:OsvValidator"
+metadata = "poetry_guard_plugin.validators.metadata:MetadataValidator"
+
+[project.entry-points."poetry_guard.validators.artifact"]
+guarddog = "poetry_guard_plugin.validators.guarddog:GuardDogValidator"
+
+[tool.poetry]
+packages = [{ include = "poetry_guard_plugin" }]
 
 [tool.poetry.dependencies]
-python = "^3.12"
-regex = "*"
-poetry = ">=2.0,<3"
-guarddog = "^3.0"
-aiohttp = "*"
+python = ">=3.12,<4.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "*"
@@ -23,22 +40,12 @@ pytest-asyncio = "*"
 flake8 = "*"
 mypy = "*"
 black = "*"
-bandit = {extras = ["toml"], version = "*"}
-coverage = {extras = ["toml"], version = "*"}
+bandit = { extras = ["toml"], version = "*" }
+coverage = { extras = ["toml"], version = "*" }
 
 [build-system]
 requires = ["poetry-core>=2.0.0"]
 build-backend = "poetry.core.masonry.api"
-
-[tool.poetry.plugins."poetry.application.plugin"]
-poetry-guard = "poetry_guard_plugin.plugin:GuardApplicationPlugin"
-
-[tool.poetry.plugins."poetry_guard.validators.lockfile"]
-osv = "poetry_guard_plugin.validators.osv:OsvValidator"
-metadata = "poetry_guard_plugin.validators.metadata:MetadataValidator"
-
-[tool.poetry.plugins."poetry_guard.validators.artifact"]
-guarddog = "poetry_guard_plugin.validators.guarddog:GuardDogValidator"
 
 [tool.black]
 line-length = 120

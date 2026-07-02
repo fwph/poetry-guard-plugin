@@ -16,6 +16,7 @@ from typing import Any
 from poetry_guard_plugin.config import GuardConfig
 from poetry_guard_plugin.validators.base import Finding, PackageRef, RuleSpec, Severity
 
+
 def _rules() -> tuple[RuleSpec, ...]:
     return (
         RuleSpec(rule_id="guarddog-low-risk", default_severity=Severity.LOW, description="GuardDog low-risk package"),
@@ -63,8 +64,7 @@ class GuardDogValidator:
         stdout, stderr = await proc.communicate()
         if not stdout:
             raise RuntimeError(
-                f"guarddog produced no output (exit {proc.returncode}): "
-                f"{stderr.decode(errors='replace')[:300]}"
+                f"guarddog produced no output (exit {proc.returncode}): " f"{stderr.decode(errors='replace')[:300]}"
             )
         try:
             data = json.loads(stdout)

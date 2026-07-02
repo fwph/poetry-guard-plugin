@@ -92,20 +92,30 @@ class MetadataValidator:
             uploaded = datetime.fromisoformat(upload_iso)
             age_days = (now - uploaded).total_seconds() / 86400
             if age_days < self.config.min_age_days:
-                out.append(Finding(
-                    validator=self.name, rule_id="too_new", severity=Severity.MODERATE,
-                    package_name=pkg.name, package_version=pkg.version,
-                    message=f"{pkg.key} uploaded {age_days:.1f} days ago (< {self.config.min_age_days})",
-                    detail={"uploaded": upload_iso, "age_days": round(age_days, 2)},
-                ))
+                out.append(
+                    Finding(
+                        validator=self.name,
+                        rule_id="too_new",
+                        severity=Severity.MODERATE,
+                        package_name=pkg.name,
+                        package_version=pkg.version,
+                        message=f"{pkg.key} uploaded {age_days:.1f} days ago (< {self.config.min_age_days})",
+                        detail={"uploaded": upload_iso, "age_days": round(age_days, 2)},
+                    )
+                )
 
         if not _has_repo_url(info):
-            out.append(Finding(
-                validator=self.name, rule_id="repo_url_missing", severity=Severity.LOW,
-                package_name=pkg.name, package_version=pkg.version,
-                message=f"{pkg.key} has no source-repo URL on PyPI",
-                detail={"home_page": info.get("home_page"), "project_urls": info.get("project_urls")},
-            ))
+            out.append(
+                Finding(
+                    validator=self.name,
+                    rule_id="repo_url_missing",
+                    severity=Severity.LOW,
+                    package_name=pkg.name,
+                    package_version=pkg.version,
+                    message=f"{pkg.key} has no source-repo URL on PyPI",
+                    detail={"home_page": info.get("home_page"), "project_urls": info.get("project_urls")},
+                )
+            )
 
         prior_pkg = prior.get(pkg.name)
         if prior_pkg and prior_pkg.version != pkg.version:
@@ -116,45 +126,49 @@ class MetadataValidator:
                 added = sorted(current_emails - prior_emails)
                 removed = sorted(prior_emails - current_emails)
                 if overlap:
-                    out.append(Finding(
-                        validator=self.name,
-                        rule_id="maintainer_roster_changed",
-                        severity=Severity.MODERATE,
-                        package_name=pkg.name,
-                        package_version=pkg.version,
-                        message=(
-                            f"{pkg.key}: maintainer roster changed since {prior_pkg.version}"
-                            f" (+{len(added)} / -{len(removed)}; {len(overlap)} unchanged)"
-                        ),
-                        detail={
-                            "prior_version": prior_pkg.version,
-                            "prior_emails": sorted(prior_emails),
-                            "current_emails": sorted(current_emails),
-                            "overlap": overlap,
-                            "added": added,
-                            "removed": removed,
-                        },
-                    ))
+                    out.append(
+                        Finding(
+                            validator=self.name,
+                            rule_id="maintainer_roster_changed",
+                            severity=Severity.MODERATE,
+                            package_name=pkg.name,
+                            package_version=pkg.version,
+                            message=(
+                                f"{pkg.key}: maintainer roster changed since {prior_pkg.version}"
+                                f" (+{len(added)} / -{len(removed)}; {len(overlap)} unchanged)"
+                            ),
+                            detail={
+                                "prior_version": prior_pkg.version,
+                                "prior_emails": sorted(prior_emails),
+                                "current_emails": sorted(current_emails),
+                                "overlap": overlap,
+                                "added": added,
+                                "removed": removed,
+                            },
+                        )
+                    )
                 else:
-                    out.append(Finding(
-                        validator=self.name,
-                        rule_id="maintainer_changed",
-                        severity=Severity.HIGH,
-                        package_name=pkg.name,
-                        package_version=pkg.version,
-                        message=(
-                            f"{pkg.key}: maintainer roster changed completely since {prior_pkg.version}"
-                            f" ({len(prior_emails)} prior -> {len(current_emails)} current)"
-                        ),
-                        detail={
-                            "prior_version": prior_pkg.version,
-                            "prior_emails": sorted(prior_emails),
-                            "current_emails": sorted(current_emails),
-                            "overlap": overlap,
-                            "added": added,
-                            "removed": removed,
-                        },
-                    ))
+                    out.append(
+                        Finding(
+                            validator=self.name,
+                            rule_id="maintainer_changed",
+                            severity=Severity.HIGH,
+                            package_name=pkg.name,
+                            package_version=pkg.version,
+                            message=(
+                                f"{pkg.key}: maintainer roster changed completely since {prior_pkg.version}"
+                                f" ({len(prior_emails)} prior -> {len(current_emails)} current)"
+                            ),
+                            detail={
+                                "prior_version": prior_pkg.version,
+                                "prior_emails": sorted(prior_emails),
+                                "current_emails": sorted(current_emails),
+                                "overlap": overlap,
+                                "added": added,
+                                "removed": removed,
+                            },
+                        )
+                    )
         return out
 
 
@@ -170,9 +184,5 @@ def _has_repo_url(info: dict[str, Any]) -> bool:
 def _emails_from(meta: dict[str, Any]) -> frozenset[str]:
     info = meta.get("info") or {}
     raw_values = [str(info.get("author_email") or ""), str(info.get("maintainer_email") or "")]
-    parsed = {
-        email.strip().lower()
-        for _name, email in getaddresses(raw_values)
-        if email and "@" in email
-    }
+    parsed = {email.strip().lower() for _name, email in getaddresses(raw_values) if email and "@" in email}
     return frozenset(parsed)
